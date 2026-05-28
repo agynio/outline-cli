@@ -115,7 +115,6 @@ func newDocumentsSearchCmd() *cobra.Command {
 }
 
 func newDocumentsCreateCmd() *cobra.Command {
-	var collectionID string
 	var title string
 	var filePath string
 	var text string
@@ -144,7 +143,7 @@ func newDocumentsCreateCmd() *cobra.Command {
 			return runRPC(cmd, "documents.create", payload)
 		},
 	}
-	cmd.Flags().StringVar(&collectionID, "collection", "", "Collection ID")
+	cmd.Flags().String("collection", "", "Collection ID")
 	cmd.Flags().String("collection-id", "", "Collection ID (alias)")
 	cmd.Flags().StringVar(&title, "title", "", "Document title")
 	cmd.Flags().StringVar(&filePath, "file", "", "Markdown file")
