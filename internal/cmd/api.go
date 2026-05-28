@@ -409,47 +409,86 @@ func runSharesInfo(cmd *cobra.Command, payload map[string]any) error {
 	}
 	shareID := strings.TrimSpace(fmt.Sprint(payload["id"]))
 	documentID := strings.TrimSpace(fmt.Sprint(payload["documentId"]))
-	if !outline.IsNotFound(err) || shareID == "" || shareID == "<nil>" || documentID == "" || documentID == "<nil>" {
+	if !outline.IsNotFound(err) || shareID == "" || shareID == "<nil>" {
 		return err
+	}
+	if documentID == "" || documentID == "<nil>" {
+		var inferred bool
+		documentID, inferred, err = documentIDForShare(cmd, shareID)
+		if err != nil {
+			return err
+		}
+		if !inferred {
+			return fmt.Errorf("shares.info by id returned not found and share %s was not found in shares.list; rerun with --document-id if known", shareID)
+		}
 	}
 	response, err = runContext.Client.Post(cmd.Context(), "shares.info", map[string]any{"documentId": documentID})
 	if err != nil {
 		return err
 	}
-	return printResponse(cmd, shareFromDocumentShareResponse(response, shareID))
+	share, err := shareFromDocumentShareResponse(response, shareID)
+	if err != nil {
+		return err
+	}
+	return printResponse(cmd, share)
 }
 
-func shareFromDocumentShareResponse(response map[string]any, shareID string) any {
+func documentIDForShare(cmd *cobra.Command, shareID string) (string, bool, error) {
+	runContext, err := RunContextFrom(cmd)
+	if err != nil {
+		return "", false, err
+	}
+	response, err := runContext.Client.Post(cmd.Context(), "shares.list", map[string]any{})
+	if err != nil {
+		return "", false, err
+	}
+	share, ok := findShareInResponse(response, shareID)
+	if !ok {
+		return "", false, nil
+	}
+	documentID := strings.TrimSpace(fmt.Sprint(share["documentId"]))
+	if documentID == "" || documentID == "<nil>" {
+		return "", false, fmt.Errorf("share %s found in shares.list but documentId is missing", shareID)
+	}
+	return documentID, true, nil
+}
+
+func shareFromDocumentShareResponse(response map[string]any, shareID string) (any, error) {
+	share, ok := findShareInResponse(response, shareID)
+	if !ok {
+		return nil, fmt.Errorf("share %s not found in document share response", shareID)
+	}
+	return share, nil
+}
+
+func findShareInResponse(response map[string]any, shareID string) (map[string]any, bool) {
 	data := outline.ResponseData(response)
 	if share, ok := data.(map[string]any); ok {
 		if strings.TrimSpace(fmt.Sprint(share["id"])) == shareID {
-			return share
+			return share, true
 		}
 		if shares, ok := share["shares"].([]any); ok {
 			return matchingShare(shares, shareID)
 		}
-		return share
+		return nil, false
 	}
 	if shares, ok := data.([]any); ok {
 		return matchingShare(shares, shareID)
 	}
-	return data
+	return nil, false
 }
 
-func matchingShare(shares []any, shareID string) any {
+func matchingShare(shares []any, shareID string) (map[string]any, bool) {
 	for _, candidate := range shares {
 		share, ok := candidate.(map[string]any)
 		if !ok {
 			continue
 		}
 		if strings.TrimSpace(fmt.Sprint(share["id"])) == shareID {
-			return share
+			return share, true
 		}
 	}
-	if len(shares) > 0 {
-		return shares[0]
-	}
-	return shares
+	return nil, false
 }
 
 func transformSharesInfo(cmd *cobra.Command, spec methodSpec, payload map[string]any) (map[string]any, error) {

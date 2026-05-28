@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -225,6 +226,102 @@ func TestSharesInfoFallsBackFromIDToDocumentID(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), `"id": "other"`) {
 		t.Fatalf("stdout = %s, should filter non-matching share", stdout.String())
+	}
+}
+
+func TestSharesInfoInfersDocumentIDFromList(t *testing.T) {
+	const shareID = "share-1"
+	const documentID = "doc-1"
+	requests := []string{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		requests = append(requests, strings.TrimPrefix(r.URL.Path, "/")+":"+fmt.Sprint(payload))
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/shares.info":
+			if _, ok := payload["id"]; ok {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"id":"share-1","documentId":"doc-1"}}`))
+		case "/shares.list":
+			_, _ = w.Write([]byte(`{"data":[{"id":"share-1","documentId":"doc-1"}]}`))
+		default:
+			t.Fatalf("unexpected request path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newMethodCommand(methodSpec{
+		Group:     "shares",
+		Action:    "info",
+		Method:    "shares.info",
+		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
+		Transform: transformSharesInfo,
+	})
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL, "token"),
+		OutputFormat: output.FormatJSON,
+	}))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--id", shareID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(requests) != 3 {
+		t.Fatalf("requests = %v, want id lookup, shares.list, document lookup", requests)
+	}
+	if !strings.Contains(requests[2], "documentId:"+documentID) {
+		t.Fatalf("document fallback request = %q, want documentId %s", requests[2], documentID)
+	}
+	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
+		t.Fatalf("stdout = %s, want inferred share", stdout.String())
+	}
+}
+
+func TestSharesInfoFallbackErrorsWhenIDMissingFromDocumentResponse(t *testing.T) {
+	const shareID = "missing-share"
+	const documentID = "doc-1"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if _, ok := payload["id"]; ok {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"other","documentId":"doc-1"}]}`))
+	}))
+	defer server.Close()
+
+	cmd := newMethodCommand(methodSpec{
+		Group:     "shares",
+		Action:    "info",
+		Method:    "shares.info",
+		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
+		Transform: transformSharesInfo,
+	})
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL, "token"),
+		OutputFormat: output.FormatJSON,
+	}))
+	cmd.SetArgs([]string{"--id", shareID, "--document-id", documentID})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() expected missing share error")
+	}
+	if !strings.Contains(err.Error(), "not found in document share response") {
+		t.Fatalf("error = %q, want missing share message", err.Error())
 	}
 }
 
