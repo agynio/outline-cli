@@ -77,6 +77,94 @@ func TestAliasPayloadUsesCanonicalName(t *testing.T) {
 	}
 }
 
+func TestAliasPayloadRejectsConflictingValues(t *testing.T) {
+	spec := methodSpec{Flags: fields(s("document", "documentId", "Document ID")), Required: []string{"document"}}
+	cmd := &cobra.Command{}
+	values := methodValues{strings: map[string]*string{}, bools: map[string]*bool{}, ints: map[string]*int{}, stringLists: map[string]*[]string{}}
+	registerFieldFlag(cmd, values, spec.Flags[0])
+	_ = cmd.Flags().Set("document", "document-1")
+	_ = cmd.Flags().Set("document-id", "document-2")
+
+	_, err := buildPayload(cmd, spec, values, nil)
+	if err == nil {
+		t.Fatal("buildPayload() expected conflict error")
+	}
+	if !strings.Contains(err.Error(), "conflicting values") {
+		t.Fatalf("buildPayload() error = %q, want conflict", err.Error())
+	}
+}
+
+func TestAliasPayloadAllowsMatchingValues(t *testing.T) {
+	spec := methodSpec{Flags: fields(s("document", "documentId", "Document ID")), Required: []string{"document"}}
+	cmd := &cobra.Command{}
+	values := methodValues{strings: map[string]*string{}, bools: map[string]*bool{}, ints: map[string]*int{}, stringLists: map[string]*[]string{}}
+	registerFieldFlag(cmd, values, spec.Flags[0])
+	_ = cmd.Flags().Set("document", "document-1")
+	_ = cmd.Flags().Set("document-id", "document-1")
+
+	payload, err := buildPayload(cmd, spec, values, nil)
+	if err != nil {
+		t.Fatalf("buildPayload() error = %v", err)
+	}
+	if payload["documentId"] != "document-1" {
+		t.Fatalf("documentId = %v, want document-1", payload["documentId"])
+	}
+}
+
+func TestHandwrittenAliasesRejectConflictingValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		cmd   *cobra.Command
+		flags []string
+	}{
+		{name: "documents list", cmd: newDocumentsListCmd(), flags: []string{"collection", "collection-id"}},
+		{name: "documents create", cmd: newDocumentsCreateCmd(), flags: []string{"collection", "collection-id"}},
+		{name: "documents update", cmd: newDocumentsUpdateCmd(), flags: []string{"collection", "collection-id"}},
+		{name: "comments list", cmd: newCommentsListCmd(), flags: []string{"document", "document-id"}},
+		{name: "comments create", cmd: newCommentsCreateCmd(), flags: []string{"document", "document-id"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_ = test.cmd.Flags().Set(test.flags[0], "value-1")
+			_ = test.cmd.Flags().Set(test.flags[1], "value-2")
+			_, err := aliasedStringFlagValue(test.cmd, test.flags[0], test.flags[1])
+			if err == nil {
+				t.Fatal("aliasedStringFlagValue() expected conflict error")
+			}
+		})
+	}
+}
+
+func TestSmokeRunnerCommandFlagsExist(t *testing.T) {
+	tests := []struct {
+		group   string
+		command string
+		flags   []string
+	}{
+		{group: "documents", command: "create", flags: []string{"collection-id"}},
+		{group: "documents", command: "list", flags: []string{"collection-id"}},
+		{group: "documents", command: "search", flags: []string{"collection-id"}},
+		{group: "comments", command: "list", flags: []string{"document-id"}},
+		{group: "views", command: "list", flags: []string{"document-id"}},
+		{group: "views", command: "create", flags: []string{"document-id"}},
+		{group: "shares", command: "list", flags: []string{"document-id"}},
+		{group: "events", command: "list", flags: []string{"document-id"}},
+	}
+
+	commands := newAPIRootCommands()
+	for _, test := range tests {
+		t.Run(test.group+" "+test.command, func(t *testing.T) {
+			cmd := findCommand(t, commands, test.group, test.command)
+			for _, flag := range test.flags {
+				if cmd.Flags().Lookup(flag) == nil {
+					t.Fatalf("missing --%s", flag)
+				}
+			}
+		})
+	}
+}
+
 func TestIDCommandsAcceptFlagAndOptionalArg(t *testing.T) {
 	tests := []struct {
 		name    string

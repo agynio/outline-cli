@@ -324,32 +324,36 @@ func registerFieldFlag(cmd *cobra.Command, values methodValues, field fieldSpec)
 		values.strings[field.Name] = &value
 		cmd.Flags().StringVar(&value, field.Name, "", field.Usage)
 		for _, alias := range field.Aliases {
-			values.strings[alias] = &value
-			cmd.Flags().StringVar(&value, alias, "", field.Usage+" (alias)")
+			aliasValue := ""
+			values.strings[alias] = &aliasValue
+			cmd.Flags().StringVar(&aliasValue, alias, "", field.Usage+" (alias)")
 		}
 	case fieldBool:
 		value := false
 		values.bools[field.Name] = &value
 		cmd.Flags().BoolVar(&value, field.Name, false, field.Usage)
 		for _, alias := range field.Aliases {
-			values.bools[alias] = &value
-			cmd.Flags().BoolVar(&value, alias, false, field.Usage+" (alias)")
+			aliasValue := false
+			values.bools[alias] = &aliasValue
+			cmd.Flags().BoolVar(&aliasValue, alias, false, field.Usage+" (alias)")
 		}
 	case fieldInt:
 		value := 0
 		values.ints[field.Name] = &value
 		cmd.Flags().IntVar(&value, field.Name, 0, field.Usage)
 		for _, alias := range field.Aliases {
-			values.ints[alias] = &value
-			cmd.Flags().IntVar(&value, alias, 0, field.Usage+" (alias)")
+			aliasValue := 0
+			values.ints[alias] = &aliasValue
+			cmd.Flags().IntVar(&aliasValue, alias, 0, field.Usage+" (alias)")
 		}
 	case fieldStringList:
 		value := []string{}
 		values.stringLists[field.Name] = &value
 		cmd.Flags().StringArrayVar(&value, field.Name, nil, field.Usage)
 		for _, alias := range field.Aliases {
-			values.stringLists[alias] = &value
-			cmd.Flags().StringArrayVar(&value, alias, nil, field.Usage+" (alias)")
+			aliasValue := []string{}
+			values.stringLists[alias] = &aliasValue
+			cmd.Flags().StringArrayVar(&aliasValue, alias, nil, field.Usage+" (alias)")
 		}
 	default:
 		panic(fmt.Sprintf("unsupported field type %q", field.Type))
@@ -384,7 +388,10 @@ func buildPayload(cmd *cobra.Command, spec methodSpec, values methodValues, args
 		payload[arg.PayloadName] = args[index]
 	}
 	for _, field := range spec.Flags {
-		changedName := changedFieldName(cmd, field)
+		changedName, err := changedFieldName(cmd, field, values)
+		if err != nil {
+			return nil, err
+		}
 		if changedName == "" {
 			continue
 		}
@@ -421,16 +428,45 @@ func buildPayload(cmd *cobra.Command, spec methodSpec, values methodValues, args
 	return payload, nil
 }
 
-func changedFieldName(cmd *cobra.Command, field fieldSpec) string {
+func changedFieldName(cmd *cobra.Command, field fieldSpec, values methodValues) (string, error) {
+	changed := []string{}
 	if cmd.Flags().Changed(field.Name) {
-		return field.Name
+		changed = append(changed, field.Name)
 	}
 	for _, alias := range field.Aliases {
 		if cmd.Flags().Changed(alias) {
-			return alias
+			changed = append(changed, alias)
 		}
 	}
-	return ""
+	if len(changed) == 0 {
+		return "", nil
+	}
+	if len(changed) == 1 {
+		return changed[0], nil
+	}
+
+	firstValue := fieldValueString(field.Type, values, changed[0])
+	for _, name := range changed[1:] {
+		if fieldValueString(field.Type, values, name) != firstValue {
+			return "", fmt.Errorf("conflicting values for --%s and --%s", changed[0], name)
+		}
+	}
+	return changed[0], nil
+}
+
+func fieldValueString(fieldType fieldType, values methodValues, name string) string {
+	switch fieldType {
+	case fieldString, fieldJSON:
+		return strings.TrimSpace(*values.strings[name])
+	case fieldBool:
+		return strconv.FormatBool(*values.bools[name])
+	case fieldInt:
+		return strconv.Itoa(*values.ints[name])
+	case fieldStringList:
+		return strings.Join(*values.stringLists[name], "\x00")
+	default:
+		panic(fmt.Sprintf("unsupported field type %q", fieldType))
+	}
 }
 
 func flagPayloadName(spec methodSpec, flagName string) string {

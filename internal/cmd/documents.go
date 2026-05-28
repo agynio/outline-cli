@@ -68,18 +68,50 @@ func newDocumentsPullCmd() *cobra.Command {
 }
 
 func newDocumentsListCmd() *cobra.Command {
-	return rpcCommand("list", "List documents", "documents.list", nil)
+	var collectionID string
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List documents",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedCollectionID, err := aliasedStringFlagValue(cmd, "collection", "collection-id")
+			if err != nil {
+				return err
+			}
+			payload := map[string]any{}
+			if resolvedCollectionID != "" {
+				payload["collectionId"] = resolvedCollectionID
+			}
+			return runRPC(cmd, "documents.list", payload)
+		},
+	}
+	cmd.Flags().StringVar(&collectionID, "collection", "", "Collection ID")
+	cmd.Flags().String("collection-id", "", "Collection ID (alias)")
+	return cmd
 }
 
 func newDocumentsSearchCmd() *cobra.Command {
-	return &cobra.Command{
+	var collectionID string
+
+	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search documents",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRPC(cmd, "documents.search", map[string]any{"query": args[0]})
+			resolvedCollectionID, err := aliasedStringFlagValue(cmd, "collection", "collection-id")
+			if err != nil {
+				return err
+			}
+			payload := map[string]any{"query": args[0]}
+			if resolvedCollectionID != "" {
+				payload["collectionId"] = resolvedCollectionID
+			}
+			return runRPC(cmd, "documents.search", payload)
 		},
 	}
+	cmd.Flags().StringVar(&collectionID, "collection", "", "Collection ID")
+	cmd.Flags().String("collection-id", "", "Collection ID (alias)")
+	return cmd
 }
 
 func newDocumentsCreateCmd() *cobra.Command {
@@ -93,12 +125,16 @@ func newDocumentsCreateCmd() *cobra.Command {
 		Use:   "create",
 		Short: "Create a document",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedCollectionID, err := aliasedStringFlagValue(cmd, "collection", "collection-id")
+			if err != nil {
+				return err
+			}
 			markdown, err := markdownInput(filePath, text)
 			if err != nil {
 				return err
 			}
 			payload := map[string]any{
-				"collectionId": collectionID,
+				"collectionId": resolvedCollectionID,
 				"title":        title,
 				"text":         markdown,
 			}
@@ -109,7 +145,7 @@ func newDocumentsCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&collectionID, "collection", "", "Collection ID")
-	cmd.Flags().StringVar(&collectionID, "collection-id", "", "Collection ID (alias)")
+	cmd.Flags().String("collection-id", "", "Collection ID (alias)")
 	cmd.Flags().StringVar(&title, "title", "", "Document title")
 	cmd.Flags().StringVar(&filePath, "file", "", "Markdown file")
 	cmd.Flags().StringVar(&text, "text", "", "Markdown text")
@@ -135,7 +171,10 @@ func newDocumentsUpdateCmd() *cobra.Command {
 				return err
 			}
 
-			trimmedCollectionID := strings.TrimSpace(collectionID)
+			trimmedCollectionID, err := aliasedStringFlagValue(cmd, "collection", "collection-id")
+			if err != nil {
+				return err
+			}
 			if filePath == "" && text == "" && trimmedCollectionID == "" {
 				return fmt.Errorf("one of --file, --text, or --collection-id is required")
 			}
@@ -156,7 +195,7 @@ func newDocumentsUpdateCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&documentID, "id", "", "Document ID")
 	cmd.Flags().StringVar(&collectionID, "collection", "", "Collection ID")
-	cmd.Flags().StringVar(&collectionID, "collection-id", "", "Collection ID (alias)")
+	cmd.Flags().String("collection-id", "", "Collection ID (alias)")
 	cmd.Flags().StringVar(&filePath, "file", "", "Markdown file")
 	cmd.Flags().StringVar(&text, "text", "", "Markdown text")
 	return cmd
@@ -178,6 +217,34 @@ func idFromFlagOrArg(flagValue string, args []string, label string) (string, err
 		return "", fmt.Errorf("use either --id or %s argument, not both", label)
 	}
 	return trimmedArg, nil
+}
+
+func aliasedStringFlagValue(cmd *cobra.Command, name string, alias string) (string, error) {
+	canonicalChanged := cmd.Flags().Changed(name)
+	aliasChanged := cmd.Flags().Changed(alias)
+	if !canonicalChanged && !aliasChanged {
+		return "", nil
+	}
+	canonicalValue, err := cmd.Flags().GetString(name)
+	if err != nil {
+		return "", err
+	}
+	aliasValue, err := cmd.Flags().GetString(alias)
+	if err != nil {
+		return "", err
+	}
+	trimmedCanonical := strings.TrimSpace(canonicalValue)
+	trimmedAlias := strings.TrimSpace(aliasValue)
+	if canonicalChanged && aliasChanged {
+		if trimmedCanonical != trimmedAlias {
+			return "", fmt.Errorf("conflicting values for --%s and --%s", name, alias)
+		}
+		return trimmedCanonical, nil
+	}
+	if canonicalChanged {
+		return trimmedCanonical, nil
+	}
+	return trimmedAlias, nil
 }
 
 func markdownInput(filePath, text string) (string, error) {
