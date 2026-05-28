@@ -103,7 +103,7 @@ var outlineMethods = []methodSpec{
 	{Group: "collections", Action: "export-all", Method: "collections.export_all", Short: "Export all collections", Flags: fields(s("format", "format", "Export format"), b("include-attachments", "includeAttachments", "Include attachments"), b("include-private", "includePrivate", "Include private collections"))},
 
 	{Group: "comments", Action: "info", Method: "comments.info", Short: "Retrieve a comment", Flags: fields(s("id", "id", "Comment ID"), b("include-anchor-text", "includeAnchorText", "Include anchor text")), Required: []string{"id"}},
-	{Group: "comments", Action: "update", Method: "comments.update", Short: "Update a comment", Flags: fields(s("id", "id", "Comment ID"), s("text", "text", "Markdown text"), j("data-json", "data", "Comment body JSON")), Required: []string{"id"}, Transform: transformCommentUpdate},
+	{Group: "comments", Action: "update", Method: "comments.update", Short: "Update a comment", Flags: fields(s("id", "id", "Comment ID"), j("data-json", "data", "Valid ProseMirror comment document JSON")), Required: []string{"id", "data-json"}},
 	{Group: "comments", Action: "delete", Method: "comments.delete", Short: "Delete a comment", Flags: fields(s("id", "id", "Comment ID")), Required: []string{"id"}, Destructive: true},
 	{Group: "data-attributes", Action: "info", Method: "dataAttributes.info", Short: "Retrieve a data attribute", Flags: fields(s("id", "id", "Data attribute ID")), Required: []string{"id"}},
 	{Group: "data-attributes", Action: "list", Method: "dataAttributes.list", Short: "List data attributes", Flags: fields(limitFlag(), offsetFlag())},
@@ -393,22 +393,6 @@ func runMethodCommand(cmd *cobra.Command, spec methodSpec, values methodValues, 
 		return runBinaryMethod(cmd, spec, payload, values)
 	}
 	return runRPC(cmd, spec.Method, payload)
-}
-
-func transformCommentUpdate(cmd *cobra.Command, spec methodSpec, payload map[string]any) (map[string]any, error) {
-	_, hasText := payload["text"]
-	_, hasData := payload["data"]
-	if !hasText && !hasData {
-		return nil, fmt.Errorf("one of --text or --data-json is required")
-	}
-	if hasText && hasData {
-		return nil, fmt.Errorf("use either --text or --data-json, not both")
-	}
-	if text, ok := payload["text"].(string); ok {
-		delete(payload, "text")
-		payload["data"] = map[string]any{"text": text}
-	}
-	return payload, nil
 }
 
 func transformDocumentsRestore(cmd *cobra.Command, spec methodSpec, payload map[string]any) (map[string]any, error) {

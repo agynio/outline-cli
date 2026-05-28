@@ -285,22 +285,23 @@ func TestAliasPayloadAllowsMatchingValues(t *testing.T) {
 	}
 }
 
-func TestCommentsUpdateTextBuildsDataPayload(t *testing.T) {
+func TestCommentsUpdateRequiresProseMirrorDataJSON(t *testing.T) {
+	proseMirror := `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"updated"}]}]}`
 	payload := buildMethodPayloadForTest(t, methodSpec{
-		Flags:     fields(s("id", "id", "Comment ID"), s("text", "text", "Markdown text"), j("data-json", "data", "Comment body JSON")),
-		Required:  []string{"id"},
-		Transform: transformCommentUpdate,
-	}, []string{"--id", "comment-1", "--text", "updated"})
+		Flags:    fields(s("id", "id", "Comment ID"), j("data-json", "data", "Valid ProseMirror comment document JSON")),
+		Required: []string{"id", "data-json"},
+	}, []string{"--id", "comment-1", "--data-json", proseMirror})
 
 	data, ok := payload["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("data type = %T, want map", payload["data"])
 	}
-	if data["text"] != "updated" {
-		t.Fatalf("data.text = %v, want updated", data["text"])
+	if data["type"] != "doc" {
+		t.Fatalf("data.type = %v, want doc", data["type"])
 	}
-	if _, ok := payload["text"]; ok {
-		t.Fatal("payload should not include top-level text")
+	content, ok := data["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("data.content = %#v, want one ProseMirror node", data["content"])
 	}
 }
 
