@@ -29,54 +29,66 @@ var (
 
 var versionInfo = "dev"
 
-var rootCmd = &cobra.Command{
-	Use:          "outline",
-	Short:        "Outline CLI",
-	Version:      versionInfo,
-	SilenceUsage: true,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+var rootCmd = newRootCmd()
+
+func newRootCmd() *cobra.Command {
+	baseURLFlag = ""
+	outputFlag = ""
+	cmd := &cobra.Command{
+		Use:               "outline",
+		Short:             "Outline CLI",
+		Version:           versionInfo,
+		SilenceUsage:      true,
+		PersistentPreRunE: rootPersistentPreRun,
+	}
+	cmd.PersistentFlags().StringVar(&baseURLFlag, "base-url", "", "Outline base URL")
+	cmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "Output format: yaml, md, or json")
+	cmd.AddCommand(newAPIRootCommands()...)
+	return cmd
+}
+
+func rootPersistentPreRun(cmd *cobra.Command, args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	formatValue := outputFlag
+	if formatValue == "" {
+		formatValue = cfg.Output
+	}
+	format, err := output.ParseFormat(formatValue)
+	if err != nil {
+		return err
+	}
+
+	var client *outline.Client
+	var baseURL string
+	if requiresBaseURL(cmd, args) {
+		resolved, err := config.ResolveBaseURL(cfg, baseURLFlag)
 		if err != nil {
 			return err
 		}
+		baseURL = resolved
 
-		formatValue := outputFlag
-		if formatValue == "" {
-			formatValue = cfg.Output
-		}
-		format, err := output.ParseFormat(formatValue)
-		if err != nil {
-			return err
-		}
-
-		var client *outline.Client
-		var baseURL string
-		if requiresBaseURL(cmd, args) {
-			resolved, err := config.ResolveBaseURL(cfg, baseURLFlag)
+		token := ""
+		if requiresAuth(cmd, args) {
+			loadedToken, err := auth.LoadToken(auth.TokenOptions{})
 			if err != nil {
 				return err
 			}
-			baseURL = resolved
-
-			token := ""
-			if requiresAuth(cmd, args) {
-				loadedToken, err := auth.LoadToken(auth.TokenOptions{})
-				if err != nil {
-					return err
-				}
-				token = loadedToken
-			}
-			client = outline.NewClient(baseURL, token)
+			token = loadedToken
 		}
+		client = outline.NewClient(baseURL, token)
+	}
 
-		cmd.SetContext(withRunContext(cmd.Context(), &RunContext{
-			Config:       cfg,
-			Client:       client,
-			OutputFormat: format,
-			BaseURL:      baseURL,
-		}))
-		return nil
-	},
+	cmd.SetContext(withRunContext(cmd.Context(), &RunContext{
+		Config:       cfg,
+		Client:       client,
+		OutputFormat: format,
+		BaseURL:      baseURL,
+	}))
+	return nil
 }
 
 func SetVersionInfo(version, commit, date string) {
@@ -151,7 +163,4 @@ func trimRequired(value, name string) (string, error) {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&baseURLFlag, "base-url", "", "Outline base URL")
-	rootCmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "Output format: yaml, md, or json")
-	rootCmd.AddCommand(newAPIRootCommands()...)
 }

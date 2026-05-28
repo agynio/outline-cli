@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -108,6 +110,60 @@ func TestDocumentsCreateCollectionIDPayloadIsVerbatim(t *testing.T) {
 	}
 	if payload["collectionId"] != collectionID {
 		t.Fatalf("collectionId = %v, want %s", payload["collectionId"], collectionID)
+	}
+}
+
+func TestRootDocumentsCreateCollectionIDPayloadIsVerbatim(t *testing.T) {
+	const collectionID = "29532493-abcb-4d35-9477-8537f7335fc7"
+	var payload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/documents.create" {
+			t.Fatalf("request path = %q, want /api/documents.create", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"collectionId: Invalid uuid"}`))
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".outline-cli")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "token"), []byte("token\n"), 0600); err != nil {
+		t.Fatalf("WriteFile() token error = %v", err)
+	}
+	t.Setenv("HOME", home)
+
+	root := newRootCmd()
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{
+		"documents", "create",
+		"--collection-id", collectionID,
+		"--title", "Smoke",
+		"--text", "# Smoke",
+		"--publish",
+		"--base-url", server.URL,
+	})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() expected server validation error")
+	}
+	if payload["collectionId"] != collectionID {
+		t.Fatalf("collectionId = %v, want %s", payload["collectionId"], collectionID)
+	}
+	if strings.Contains(err.Error(), "collectionId=d"+collectionID) {
+		t.Fatalf("error context includes corrupted collectionId: %v", err)
+	}
+	if !strings.Contains(err.Error(), "collectionId="+collectionID) {
+		t.Fatalf("error context = %q, want verbatim collectionId", err.Error())
 	}
 }
 
