@@ -2,10 +2,14 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/agynio/outline-cli/internal/outline"
 	"github.com/agynio/outline-cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -74,6 +78,36 @@ func TestAliasPayloadUsesCanonicalName(t *testing.T) {
 	}
 	if payload["collectionId"] != "collection-123" {
 		t.Fatalf("collectionId = %v, want collection-123", payload["collectionId"])
+	}
+}
+
+func TestDocumentsCreateCollectionIDPayloadIsVerbatim(t *testing.T) {
+	const collectionID = "29532493-abcb-4d35-9477-8537f7335fc7"
+	var payload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/documents.create" {
+			t.Fatalf("request path = %q, want /documents.create", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"id":"doc-1"}}`))
+	}))
+	defer server.Close()
+
+	cmd := newDocumentsCreateCmd()
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL, "token"),
+		OutputFormat: output.FormatJSON,
+	}))
+	cmd.SetArgs([]string{"--collection-id", collectionID, "--title", "Smoke", "--text", "# Smoke"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if payload["collectionId"] != collectionID {
+		t.Fatalf("collectionId = %v, want %s", payload["collectionId"], collectionID)
 	}
 }
 
