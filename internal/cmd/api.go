@@ -191,8 +191,8 @@ var outlineMethods = []methodSpec{
 	{Group: "users", Action: "activate", Method: "users.activate", Short: "Activate a user", Flags: fields(s("id", "id", "User ID")), Required: []string{"id"}},
 	{Group: "users", Action: "delete", Method: "users.delete", Short: "Delete a user", Flags: fields(s("id", "id", "User ID")), Required: []string{"id"}, Destructive: true},
 
-	{Group: "views", Action: "list", Method: "views.list", Short: "List views", Flags: fields(s("document", "documentId", "Document ID"), b("include-suspended", "includeSuspended", "Include suspended users"), limitFlag(), offsetFlag()), Required: []string{"document"}},
-	{Group: "views", Action: "create", Method: "views.create", Short: "Create a view", Flags: fields(s("document", "documentId", "Document ID")), Required: []string{"document"}},
+	{Group: "views", Action: "list", Method: "views.list", Short: "List views", Flags: fields(s("document-id", "documentId", "Document ID"), b("include-suspended", "includeSuspended", "Include suspended users"), limitFlag(), offsetFlag()), Required: []string{"document-id"}},
+	{Group: "views", Action: "create", Method: "views.create", Short: "Create a view", Flags: fields(s("document-id", "documentId", "Document ID")), Required: []string{"document-id"}},
 }
 
 func fields(values ...fieldSpec) []fieldSpec { return values }

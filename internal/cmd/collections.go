@@ -18,14 +18,18 @@ func newCollectionsListCmd() *cobra.Command {
 }
 
 func newCollectionsInfoCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "info <collection-id>",
+	var collectionID string
+
+	cmd := &cobra.Command{
+		Use:   "info",
 		Short: "Show collection details",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRPC(cmd, "collections.info", map[string]any{"id": args[0]})
+			return runRPC(cmd, "collections.info", map[string]any{"id": collectionID})
 		},
 	}
+	cmd.Flags().StringVar(&collectionID, "id", "", "Collection ID")
+	_ = cmd.MarkFlagRequired("id")
+	return cmd
 }
 
 func newCollectionsTreeCmd() *cobra.Command {
