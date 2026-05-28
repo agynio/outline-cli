@@ -153,4 +153,5 @@ func trimRequired(value, name string) (string, error) {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&baseURLFlag, "base-url", "", "Outline base URL")
 	rootCmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "Output format: yaml, md, or json")
+	rootCmd.AddCommand(newAPIRootCommands()...)
 }

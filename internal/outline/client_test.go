@@ -1,7 +1,11 @@
 package outline
 
 import (
+	"bytes"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -45,5 +49,29 @@ func TestDocumentText(t *testing.T) {
 	}
 	if text != "# Hello" {
 		t.Fatalf("DocumentText() = %q, want %q", text, "# Hello")
+	}
+}
+
+func TestWriteMultipartFile(t *testing.T) {
+	tmp := t.TempDir() + "/import.md"
+	if err := os.WriteFile(tmp, []byte("# Hello"), 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writeMultipartFile(writer, FilePart{FieldName: "file", Path: tmp, ContentType: "text/markdown"}); err != nil {
+		t.Fatalf("writeMultipartFile() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	content := body.String()
+	if !strings.Contains(content, `name="file"`) {
+		t.Fatalf("multipart body missing file field: %q", content)
+	}
+	if !strings.Contains(content, "# Hello") {
+		t.Fatalf("multipart body missing file contents: %q", content)
 	}
 }

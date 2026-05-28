@@ -144,5 +144,4 @@ func markdownInput(filePath, text string) (string, error) {
 }
 
 func init() {
-	rootCmd.AddCommand(newDocumentsCmd())
 }
