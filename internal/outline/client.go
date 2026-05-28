@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -35,6 +36,23 @@ type BinaryResponse struct {
 type RequestContext struct {
 	Method string
 	Params map[string]any
+}
+
+type StatusError struct {
+	StatusCode int
+	Status     string
+	Message    string
+	Request    RequestContext
+	RetryAfter string
+}
+
+func (e *StatusError) Error() string {
+	return responseErrorMessage(e.StatusCode, e.Status, e.Message, e.Request, e.RetryAfter)
+}
+
+func IsNotFound(err error) bool {
+	var statusError *StatusError
+	return errors.As(err, &statusError) && statusError.StatusCode == http.StatusNotFound
 }
 
 func NewClient(baseURL, token string) *Client {
@@ -244,34 +262,37 @@ func responseError(resp *http.Response, body []byte, request RequestContext) err
 	if extracted := errorMessage(body); extracted != "" {
 		message = extracted
 	}
+	return &StatusError{StatusCode: resp.StatusCode, Status: resp.Status, Message: message, Request: request, RetryAfter: resp.Header.Get("Retry-After")}
+}
 
-	switch resp.StatusCode {
+func responseErrorMessage(statusCode int, status string, message string, request RequestContext, retryAfterValue string) string {
+	switch statusCode {
 	case http.StatusUnauthorized:
-		return fmt.Errorf("outline request failed%s: unauthorized; check the API key with 'outline auth login'", requestContextLabel(request))
+		return fmt.Sprintf("outline request failed%s: unauthorized; check the API key with 'outline auth login'", requestContextLabel(request))
 	case http.StatusForbidden:
-		return fmt.Errorf("outline request failed%s: forbidden; the API key does not have access to this resource", requestContextLabel(request))
+		return fmt.Sprintf("outline request failed%s: forbidden; the API key does not have access to this resource", requestContextLabel(request))
 	case http.StatusTooManyRequests:
-		if retryAfter := retryAfterMessage(resp.Header.Get("Retry-After")); retryAfter != "" {
-			return fmt.Errorf("outline request failed%s: rate limited; retry after %s", requestContextLabel(request), retryAfter)
+		if retryAfter := retryAfterMessage(retryAfterValue); retryAfter != "" {
+			return fmt.Sprintf("outline request failed%s: rate limited; retry after %s", requestContextLabel(request), retryAfter)
 		}
-		return fmt.Errorf("outline request failed%s: rate limited", requestContextLabel(request))
+		return fmt.Sprintf("outline request failed%s: rate limited", requestContextLabel(request))
 	case http.StatusNotFound:
 		if message == "" {
 			if optionalEndpoint(request.Method) {
-				return fmt.Errorf("outline request failed%s: unsupported on this server", requestContextLabel(request))
+				return fmt.Sprintf("outline request failed%s: unsupported on this server", requestContextLabel(request))
 			}
-			return fmt.Errorf("outline request failed%s: not found", requestContextLabel(request))
+			return fmt.Sprintf("outline request failed%s: not found", requestContextLabel(request))
 		}
 		if optionalEndpoint(request.Method) || strings.Contains(strings.ToLower(message), "unsupported") {
-			return fmt.Errorf("outline request failed%s: unsupported on this server: %s", requestContextLabel(request), message)
+			return fmt.Sprintf("outline request failed%s: unsupported on this server: %s", requestContextLabel(request), message)
 		}
-		return fmt.Errorf("outline request failed%s: not found: %s", requestContextLabel(request), message)
+		return fmt.Sprintf("outline request failed%s: not found: %s", requestContextLabel(request), message)
 	}
 
 	if message == "" {
-		return fmt.Errorf("outline request failed%s: %s", requestContextLabel(request), resp.Status)
+		return fmt.Sprintf("outline request failed%s: %s", requestContextLabel(request), status)
 	}
-	return fmt.Errorf("outline request failed%s: %s: %s", requestContextLabel(request), resp.Status, message)
+	return fmt.Sprintf("outline request failed%s: %s: %s", requestContextLabel(request), status, message)
 }
 
 func optionalEndpoint(method string) bool {
