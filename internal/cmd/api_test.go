@@ -167,6 +167,90 @@ func TestRootDocumentsCreateCollectionIDPayloadIsVerbatim(t *testing.T) {
 	}
 }
 
+func TestDocumentsAddUserRejectsSelfInvite(t *testing.T) {
+	const selfID = "user-self"
+	requests := []string{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, strings.TrimPrefix(r.URL.Path, "/api/"))
+		if r.URL.Path == "/api/auth.info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"user":{"id":"user-self"}}}`))
+			return
+		}
+		t.Fatalf("unexpected request path %s", r.URL.Path)
+	}))
+	defer server.Close()
+
+	cmd := newMethodCommand(methodSpec{
+		Group:     "documents",
+		Action:    "add-user",
+		Method:    "documents.add_user",
+		Flags:     fields(s("id", "id", "Document ID"), s("user", "userId", "User ID"), s("permission", "permission", "Permission")),
+		Required:  []string{"id", "user"},
+		Transform: transformDocumentsAddUser,
+	})
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL+"/api", "token"),
+		OutputFormat: output.FormatJSON,
+	}))
+	cmd.SetArgs([]string{"--id", "doc-1", "--user-id", selfID})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() expected self-invite error")
+	}
+	if !strings.Contains(err.Error(), "cannot add yourself") {
+		t.Fatalf("error = %q, want self-invite message", err.Error())
+	}
+	if len(requests) != 1 || requests[0] != "auth.info" {
+		t.Fatalf("requests = %v, want only auth.info", requests)
+	}
+}
+
+func TestFileOperationsDownloadWritesBinaryResponse(t *testing.T) {
+	const fileOperationID = "file-operation-1"
+	var payload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/fileOperations.redirect" {
+			t.Fatalf("request path = %q, want /fileOperations.redirect", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		_, _ = w.Write([]byte("export-data"))
+	}))
+	defer server.Close()
+
+	outPath := filepath.Join(t.TempDir(), "export.zip")
+	cmd := newMethodCommand(methodSpec{
+		Group:    "file-operations",
+		Action:   "download",
+		Method:   "fileOperations.redirect",
+		Flags:    fields(s("id", "id", "File operation ID"), s("out", "out", "Output file")),
+		Required: []string{"id", "out"},
+		Binary:   binarySpec{Enabled: true, Accept: "application/octet-stream"},
+	})
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL, "token"),
+		OutputFormat: output.FormatJSON,
+	}))
+	cmd.SetArgs([]string{"--id", fileOperationID, "--out", outPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if payload["id"] != fileOperationID {
+		t.Fatalf("id = %v, want %s", payload["id"], fileOperationID)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(data) != "export-data" {
+		t.Fatalf("downloaded data = %q, want export-data", string(data))
+	}
+}
+
 func TestAliasPayloadRejectsConflictingValues(t *testing.T) {
 	spec := methodSpec{Flags: fields(s("document", "documentId", "Document ID")), Required: []string{"document"}}
 	cmd := &cobra.Command{}
@@ -199,6 +283,71 @@ func TestAliasPayloadAllowsMatchingValues(t *testing.T) {
 	if payload["documentId"] != "document-1" {
 		t.Fatalf("documentId = %v, want document-1", payload["documentId"])
 	}
+}
+
+func TestCommentsUpdateTextBuildsDataPayload(t *testing.T) {
+	payload := buildMethodPayloadForTest(t, methodSpec{
+		Flags:     fields(s("id", "id", "Comment ID"), s("text", "text", "Markdown text"), j("data-json", "data", "Comment body JSON")),
+		Required:  []string{"id"},
+		Transform: transformCommentUpdate,
+	}, []string{"--id", "comment-1", "--text", "updated"})
+
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("data type = %T, want map", payload["data"])
+	}
+	if data["text"] != "updated" {
+		t.Fatalf("data.text = %v, want updated", data["text"])
+	}
+	if _, ok := payload["text"]; ok {
+		t.Fatal("payload should not include top-level text")
+	}
+}
+
+func TestStarsUpdateIndexPayloadIsString(t *testing.T) {
+	payload := buildMethodPayloadForTest(t, methodSpec{
+		Flags:    fields(s("id", "id", "Star ID"), s("index", "index", "Index")),
+		Required: []string{"id", "index"},
+	}, []string{"--id", "star-1", "--index", "2"})
+
+	if payload["index"] != "2" {
+		t.Fatalf("index = %v (%T), want string 2", payload["index"], payload["index"])
+	}
+}
+
+func TestDocumentsRestoreRevisionIDAlias(t *testing.T) {
+	payload := buildMethodPayloadForTest(t, methodSpec{
+		Flags:    fields(s("revision", "revisionId", "Revision ID")),
+		Required: []string{"revision"},
+	}, []string{"--revision-id", "revision-1"})
+
+	if payload["revisionId"] != "revision-1" {
+		t.Fatalf("revisionId = %v, want revision-1", payload["revisionId"])
+	}
+}
+
+func buildMethodPayloadForTest(t *testing.T, spec methodSpec, args []string) map[string]any {
+	t.Helper()
+	values := methodValues{strings: map[string]*string{}, bools: map[string]*bool{}, ints: map[string]*int{}, stringLists: map[string]*[]string{}}
+	cmd := &cobra.Command{}
+	for _, field := range spec.Flags {
+		registerFieldFlag(cmd, values, field)
+	}
+	cmd.SetArgs(args)
+	if err := cmd.ParseFlags(args); err != nil {
+		t.Fatalf("ParseFlags() error = %v", err)
+	}
+	payload, err := buildPayload(cmd, spec, values, nil)
+	if err != nil {
+		t.Fatalf("buildPayload() error = %v", err)
+	}
+	if spec.Transform != nil {
+		payload, err = spec.Transform(cmd, spec, payload)
+		if err != nil {
+			t.Fatalf("Transform() error = %v", err)
+		}
+	}
+	return payload
 }
 
 func TestHandwrittenAliasesRejectConflictingValues(t *testing.T) {

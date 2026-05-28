@@ -29,6 +29,7 @@ type methodSpec struct {
 	Multipart   multipartSpec
 	Alias       string
 	Args        []argBinding
+	Transform   payloadTransform
 }
 
 type fieldSpec struct {
@@ -77,6 +78,8 @@ type confirmationValues struct {
 	yes bool
 }
 
+type payloadTransform func(*cobra.Command, methodSpec, map[string]any) (map[string]any, error)
+
 var outlineMethods = []methodSpec{
 	{Group: "access-requests", Action: "create", Method: "accessRequests.create", Short: "Create an access request", Flags: fields(s("document", "documentId", "Document ID")), Required: []string{"document"}},
 	{Group: "access-requests", Action: "info", Method: "accessRequests.info", Short: "Retrieve an access request", Flags: fields(s("id", "id", "Access request ID"), s("document", "documentId", "Document ID"))},
@@ -100,7 +103,7 @@ var outlineMethods = []methodSpec{
 	{Group: "collections", Action: "export-all", Method: "collections.export_all", Short: "Export all collections", Flags: fields(s("format", "format", "Export format"), b("include-attachments", "includeAttachments", "Include attachments"), b("include-private", "includePrivate", "Include private collections"))},
 
 	{Group: "comments", Action: "info", Method: "comments.info", Short: "Retrieve a comment", Flags: fields(s("id", "id", "Comment ID"), b("include-anchor-text", "includeAnchorText", "Include anchor text")), Required: []string{"id"}},
-	{Group: "comments", Action: "update", Method: "comments.update", Short: "Update a comment", Flags: fields(s("id", "id", "Comment ID"), j("data-json", "data", "Comment body JSON")), Required: []string{"id", "data-json"}},
+	{Group: "comments", Action: "update", Method: "comments.update", Short: "Update a comment", Flags: fields(s("id", "id", "Comment ID"), s("text", "text", "Markdown text"), j("data-json", "data", "Comment body JSON")), Required: []string{"id"}, Transform: transformCommentUpdate},
 	{Group: "comments", Action: "delete", Method: "comments.delete", Short: "Delete a comment", Flags: fields(s("id", "id", "Comment ID")), Required: []string{"id"}, Destructive: true},
 	{Group: "data-attributes", Action: "info", Method: "dataAttributes.info", Short: "Retrieve a data attribute", Flags: fields(s("id", "id", "Data attribute ID")), Required: []string{"id"}},
 	{Group: "data-attributes", Action: "list", Method: "dataAttributes.list", Short: "List data attributes", Flags: fields(limitFlag(), offsetFlag())},
@@ -116,7 +119,7 @@ var outlineMethods = []methodSpec{
 	{Group: "documents", Action: "users", Method: "documents.users", Short: "List document users", Flags: fields(s("id", "id", "Document ID"), s("query", "query", "Query"), s("user", "userId", "User ID"), limitFlag(), offsetFlag()), Required: []string{"id"}},
 	{Group: "documents", Action: "documents", Method: "documents.documents", Short: "Retrieve document child structure", Flags: fields(s("id", "id", "Document ID")), Required: []string{"id"}},
 	{Group: "documents", Action: "export", Method: "documents.export", Short: "Export a document", Flags: fields(s("id", "id", "Document ID"), s("paper-size", "paperSize", "PDF paper size"), i("signed-urls", "signedUrls", "Signed URL lifetime seconds"), b("include-child-documents", "includeChildDocuments", "Include child documents"), s("out", "out", "Output file"), s("accept", "accept", "Accept header")), Required: []string{"id"}, Binary: binarySpec{Enabled: true, Accept: "application/json"}},
-	{Group: "documents", Action: "restore", Method: "documents.restore", Short: "Restore a document", Flags: fields(s("id", "id", "Document ID"), s("collection", "collectionId", "Collection ID"), s("revision", "revisionId", "Revision ID")), Required: []string{"id"}},
+	{Group: "documents", Action: "restore", Method: "documents.restore", Short: "Restore a document", Flags: fields(s("id", "id", "Document ID"), s("collection", "collectionId", "Collection ID"), s("revision", "revisionId", "Revision ID"), b("use-latest-revision", "useLatestRevision", "Resolve and restore the latest revision")), Required: []string{"id"}, Transform: transformDocumentsRestore},
 	{Group: "documents", Action: "search-titles", Method: "documents.search_titles", Short: "Search document titles", Flags: searchFields(), Required: []string{"query"}},
 	{Group: "documents", Action: "answer-question", Method: "documents.answerQuestion", Short: "Query documents with natural language", Flags: fields(s("query", "query", "Question"), s("user", "userId", "User ID"), s("collection", "collectionId", "Collection ID"), s("document", "documentId", "Document ID"), s("status-filter", "statusFilter", "Status filter"), s("date-filter", "dateFilter", "Date filter")), Required: []string{"query"}},
 	{Group: "documents", Action: "templatize", Method: "documents.templatize", Short: "Create a template from a document", Flags: fields(s("id", "id", "Document ID"), s("collection", "collectionId", "Collection ID"), b("publish", "publish", "Publish")), Required: []string{"id"}},
@@ -126,7 +129,7 @@ var outlineMethods = []methodSpec{
 	{Group: "documents", Action: "delete", Method: "documents.delete", Short: "Delete a document", Flags: fields(s("id", "id", "Document ID"), b("permanent", "permanent", "Permanently delete")), Required: []string{"id"}, Destructive: true},
 	{Group: "documents", Action: "unpublish", Method: "documents.unpublish", Short: "Unpublish a document", Flags: fields(s("id", "id", "Document ID"), b("detach", "detach", "Detach")), Required: []string{"id"}},
 	{Group: "documents", Action: "import", Method: "documents.import", Short: "Import a file as a document", Flags: fields(s("file", "file", "File to import"), s("collection", "collectionId", "Collection ID"), s("parent-document", "parentDocumentId", "Parent document ID"), b("publish", "publish", "Publish"), s("content-type", "contentType", "File content type")), Required: []string{"file"}, Multipart: multipartSpec{Enabled: true, FileField: "file", FileFlag: "file", ContentFlag: "content-type"}},
-	{Group: "documents", Action: "add-user", Method: "documents.add_user", Short: "Add a document user", Flags: fields(s("id", "id", "Document ID"), s("user", "userId", "User ID"), s("permission", "permission", "Permission")), Required: []string{"id", "user"}},
+	{Group: "documents", Action: "add-user", Method: "documents.add_user", Short: "Add a document user", Flags: fields(s("id", "id", "Document ID"), s("user", "userId", "User ID"), s("permission", "permission", "Permission")), Required: []string{"id", "user"}, Transform: transformDocumentsAddUser},
 	{Group: "documents", Action: "remove-user", Method: "documents.remove_user", Short: "Remove a document user", Flags: fields(s("id", "id", "Document ID"), s("user", "userId", "User ID")), Required: []string{"id", "user"}, Destructive: true},
 	{Group: "documents", Action: "memberships", Method: "documents.memberships", Short: "List document memberships", Flags: fields(s("id", "id", "Document ID"), s("query", "query", "Query"), s("permission", "permission", "Permission"), limitFlag(), offsetFlag()), Required: []string{"id"}},
 	{Group: "documents", Action: "add-group", Method: "documents.add_group", Short: "Add a group to a document", Flags: fields(s("id", "id", "Document ID"), s("group", "groupId", "Group ID"), s("permission", "permission", "Permission")), Required: []string{"id", "group"}},
@@ -172,7 +175,7 @@ var outlineMethods = []methodSpec{
 
 	{Group: "stars", Action: "create", Method: "stars.create", Short: "Create a star", Flags: fields(s("document", "documentId", "Document ID"), s("collection", "collectionId", "Collection ID"), i("index", "index", "Index"))},
 	{Group: "stars", Action: "list", Method: "stars.list", Short: "List stars", Flags: fields(limitFlag(), offsetFlag())},
-	{Group: "stars", Action: "update", Method: "stars.update", Short: "Update a star", Flags: fields(s("id", "id", "Star ID"), i("index", "index", "Index")), Required: []string{"id", "index"}},
+	{Group: "stars", Action: "update", Method: "stars.update", Short: "Update a star", Flags: fields(s("id", "id", "Star ID"), s("index", "index", "Index")), Required: []string{"id", "index"}},
 	{Group: "stars", Action: "delete", Method: "stars.delete", Short: "Delete a star", Flags: fields(s("id", "id", "Star ID")), Required: []string{"id"}, Destructive: true},
 
 	{Group: "templates", Action: "create", Method: "templates.create", Short: "Create a template", Flags: fields(s("id", "id", "Template ID"), s("title", "title", "Title"), j("data-json", "data", "Template data JSON"), s("icon", "icon", "Icon"), s("color", "color", "Color"), s("collection", "collectionId", "Collection ID")), Required: []string{"title", "data-json"}},
@@ -231,6 +234,10 @@ func aliasesFor(name string) []string {
 		return []string{"user-id"}
 	case "user-id":
 		return []string{"user"}
+	case "revision":
+		return []string{"revision-id"}
+	case "revision-id":
+		return []string{"revision"}
 	default:
 		return nil
 	}
@@ -365,6 +372,12 @@ func runMethodCommand(cmd *cobra.Command, spec methodSpec, values methodValues, 
 	if err != nil {
 		return err
 	}
+	if spec.Transform != nil {
+		payload, err = spec.Transform(cmd, spec, payload)
+		if err != nil {
+			return err
+		}
+	}
 	if spec.Destructive {
 		if err := confirmAction(cmd, confirm.yes, spec.Method); err != nil {
 			return err
@@ -380,6 +393,96 @@ func runMethodCommand(cmd *cobra.Command, spec methodSpec, values methodValues, 
 		return runBinaryMethod(cmd, spec, payload, values)
 	}
 	return runRPC(cmd, spec.Method, payload)
+}
+
+func transformCommentUpdate(cmd *cobra.Command, spec methodSpec, payload map[string]any) (map[string]any, error) {
+	_, hasText := payload["text"]
+	_, hasData := payload["data"]
+	if !hasText && !hasData {
+		return nil, fmt.Errorf("one of --text or --data-json is required")
+	}
+	if hasText && hasData {
+		return nil, fmt.Errorf("use either --text or --data-json, not both")
+	}
+	if text, ok := payload["text"].(string); ok {
+		delete(payload, "text")
+		payload["data"] = map[string]any{"text": text}
+	}
+	return payload, nil
+}
+
+func transformDocumentsRestore(cmd *cobra.Command, spec methodSpec, payload map[string]any) (map[string]any, error) {
+	if useLatest, ok := payload["useLatestRevision"].(bool); ok && useLatest {
+		if _, ok := payload["revisionId"]; ok {
+			return nil, fmt.Errorf("use either --revision-id or --use-latest-revision, not both")
+		}
+		revisionID, err := latestRevisionID(cmd, fmt.Sprint(payload["id"]))
+		if err != nil {
+			return nil, err
+		}
+		payload["revisionId"] = revisionID
+	}
+	delete(payload, "useLatestRevision")
+	return payload, nil
+}
+
+func transformDocumentsAddUser(cmd *cobra.Command, spec methodSpec, payload map[string]any) (map[string]any, error) {
+	selfID, err := currentUserID(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if selfID != "" && strings.TrimSpace(fmt.Sprint(payload["userId"])) == selfID {
+		return nil, fmt.Errorf("cannot add yourself as a document user")
+	}
+	return payload, nil
+}
+
+func latestRevisionID(cmd *cobra.Command, documentID string) (string, error) {
+	runContext, err := RunContextFrom(cmd)
+	if err != nil {
+		return "", err
+	}
+	response, err := runContext.Client.Post(cmd.Context(), "revisions.list", map[string]any{"documentId": documentID, "limit": 1})
+	if err != nil {
+		return "", err
+	}
+	data, ok := outline.ResponseData(response).([]any)
+	if !ok || len(data) == 0 {
+		return "", fmt.Errorf("latest revision not found for document %s", documentID)
+	}
+	revision, ok := data[0].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("latest revision response has unexpected shape")
+	}
+	revisionID := strings.TrimSpace(fmt.Sprint(revision["id"]))
+	if revisionID == "" || revisionID == "<nil>" {
+		return "", fmt.Errorf("latest revision id missing from response")
+	}
+	return revisionID, nil
+}
+
+func currentUserID(cmd *cobra.Command) (string, error) {
+	runContext, err := RunContextFrom(cmd)
+	if err != nil {
+		return "", err
+	}
+	response, err := runContext.Client.Post(cmd.Context(), "auth.info", nil)
+	if err != nil {
+		return "", err
+	}
+	data, ok := outline.ResponseData(response).(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("auth.info response data missing")
+	}
+	user, ok := data["user"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("auth.info user missing")
+	}
+	userID := strings.TrimSpace(fmt.Sprint(user["id"]))
+	if userID == "" || userID == "<nil>" {
+		return "", fmt.Errorf("auth.info user id missing")
+	}
+	return userID, nil
 }
 
 func buildPayload(cmd *cobra.Command, spec methodSpec, values methodValues, args []string) (map[string]any, error) {

@@ -25,6 +25,7 @@ The default output format is YAML. JSON is available for debugging, and
 
 ```sh
 outline collections list
+outline documents search --query handbook
 outline documents pull <id-or-urlId>
 outline documents info --id <id-or-urlId> --output json
 ```
@@ -43,6 +44,8 @@ membership removal operations.
 - `outline documents export --id <id> [--accept <mime>] [--out <path>]` writes export data to stdout or a file.
 - `outline collections export --id <id> --format <format>` and `outline collections export-all --format <format>` return Outline file-operation records.
 - `outline file-operations download --id <id> --out <path>` downloads a completed file operation.
+- `outline comments update --id <id> --text <markdown>` updates comment text; `--data-json` remains available for raw API payloads.
+- `outline documents restore --id <id> --revision-id <id>` restores a document to a specific revision; `--use-latest-revision` resolves the newest revision first.
 - `outline attachments create ...` returns signed upload instructions.
 - `outline attachments upload --file <path> [--document <id>]` creates signed upload instructions and performs the upload.
 
