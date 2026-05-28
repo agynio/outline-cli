@@ -29,7 +29,7 @@ func Load() (*Config, error) {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return cfg, nil
+		return nil, fmt.Errorf("home dir: %w", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(home, ConfigDir, ConfigFile))

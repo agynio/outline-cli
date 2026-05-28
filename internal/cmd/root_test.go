@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/agynio/outline-cli/internal/config"
 	"github.com/agynio/outline-cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,23 @@ func TestMarkdownInputRequiresSingleSource(t *testing.T) {
 	}
 	if got != "# Title" {
 		t.Fatalf("markdownInput() = %q, want %q", got, "# Title")
+	}
+}
+
+func TestLoginConfigPreservesConfiguredOutput(t *testing.T) {
+	got := loginConfig(&config.Config{BaseURL: "https://old.example.com/api", Output: "json"}, "https://wiki.example.com/api")
+	if got.BaseURL != "https://wiki.example.com/api" {
+		t.Fatalf("BaseURL = %q, want %q", got.BaseURL, "https://wiki.example.com/api")
+	}
+	if got.Output != "json" {
+		t.Fatalf("Output = %q, want %q", got.Output, "json")
+	}
+}
+
+func TestLoginConfigDefaultsOutput(t *testing.T) {
+	got := loginConfig(nil, "https://wiki.example.com/api")
+	if got.Output != config.DefaultOutput {
+		t.Fatalf("Output = %q, want %q", got.Output, config.DefaultOutput)
 	}
 }
 

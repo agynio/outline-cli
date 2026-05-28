@@ -35,7 +35,13 @@ func newAuthLoginCmd() *cobra.Command {
 				return err
 			}
 
-			if err := config.Save(&config.Config{BaseURL: normalizedBaseURL, Output: config.DefaultOutput}); err != nil {
+			runContext, err := RunContextFrom(cmd)
+			if err != nil {
+				return err
+			}
+			updatedConfig := loginConfig(runContext.Config, normalizedBaseURL)
+
+			if err := config.Save(&updatedConfig); err != nil {
 				return err
 			}
 			if err := auth.SaveToken(key); err != nil {
@@ -51,6 +57,15 @@ func newAuthLoginCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("base-url")
 	_ = cmd.MarkFlagRequired("api-key")
 	return cmd
+}
+
+func loginConfig(cfg *config.Config, normalizedBaseURL string) config.Config {
+	updatedConfig := config.Config{Output: config.DefaultOutput}
+	if cfg != nil {
+		updatedConfig = *cfg
+	}
+	updatedConfig.BaseURL = normalizedBaseURL
+	return updatedConfig
 }
 
 func newAuthLogoutCmd() *cobra.Command {

@@ -24,6 +24,20 @@ func TestResponseErrorUnauthorized(t *testing.T) {
 	}
 }
 
+func TestErrorMessageHandlesTopLevelError(t *testing.T) {
+	got := errorMessage([]byte(`{"error":"invalid request"}`))
+	if got != "invalid request" {
+		t.Fatalf("errorMessage() = %q, want %q", got, "invalid request")
+	}
+}
+
+func TestErrorMessageHandlesNestedErrorEnvelope(t *testing.T) {
+	got := errorMessage([]byte(`{"error":{"message":"Validation failed","name":"invalid_request"}}`))
+	if got != "Validation failed" {
+		t.Fatalf("errorMessage() = %q, want %q", got, "Validation failed")
+	}
+}
+
 func TestDocumentText(t *testing.T) {
 	text, err := DocumentText(map[string]any{"data": map[string]any{"text": "# Hello"}})
 	if err != nil {

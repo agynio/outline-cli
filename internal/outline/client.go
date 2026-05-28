@@ -113,8 +113,8 @@ func responseError(resp *http.Response, body []byte) error {
 
 func errorMessage(body []byte) string {
 	var decoded struct {
-		Message string `json:"message"`
-		Error   string `json:"error"`
+		Message string          `json:"message"`
+		Error   json.RawMessage `json:"error"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		return ""
@@ -122,7 +122,26 @@ func errorMessage(body []byte) string {
 	if decoded.Message != "" {
 		return decoded.Message
 	}
-	return decoded.Error
+	if len(decoded.Error) == 0 {
+		return ""
+	}
+
+	var errorText string
+	if err := json.Unmarshal(decoded.Error, &errorText); err == nil {
+		return errorText
+	}
+
+	var errorEnvelope struct {
+		Message string `json:"message"`
+		Name    string `json:"name"`
+	}
+	if err := json.Unmarshal(decoded.Error, &errorEnvelope); err != nil {
+		return ""
+	}
+	if errorEnvelope.Message != "" {
+		return errorEnvelope.Message
+	}
+	return errorEnvelope.Name
 }
 
 func retryAfterMessage(value string) string {
