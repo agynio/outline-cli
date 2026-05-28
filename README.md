@@ -58,9 +58,7 @@ membership removal operations.
 ### attachments
 
 - `outline attachments create`
-- `outline attachments create-from-url`
 - `outline attachments delete`
-- `outline attachments list`
 - `outline attachments redirect`
 - `outline attachments upload`
 
@@ -88,14 +86,10 @@ membership removal operations.
 
 ### comments
 
-- `outline comments add-reaction`
 - `outline comments create`
 - `outline comments delete`
 - `outline comments info`
 - `outline comments list`
-- `outline comments remove-reaction`
-- `outline comments resolve`
-- `outline comments unresolve`
 - `outline comments update`
 
 ### data-attributes
@@ -178,11 +172,8 @@ membership removal operations.
 
 ### revisions
 
-- `outline revisions delete`
-- `outline revisions export`
 - `outline revisions info`
 - `outline revisions list`
-- `outline revisions update`
 
 ### shares
 

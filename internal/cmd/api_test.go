@@ -73,20 +73,7 @@ func TestConfirmActionRequiresYesForNonTTY(t *testing.T) {
 }
 
 func TestAllOpenAPIMethodsHaveCommands(t *testing.T) {
-	want := map[string]bool{}
-	for _, spec := range outlineMethods {
-		want[spec.Method] = true
-	}
-	want["auth.config"] = true
-	want["auth.info"] = true
-	for _, method := range []string{
-		"collections.documents", "collections.info", "collections.list",
-		"comments.create", "comments.list",
-		"documents.create", "documents.info", "documents.list", "documents.search", "documents.update",
-	} {
-		want[method] = true
-	}
-	for _, method := range []string{
+	officialMethods := []string{
 		"accessRequests.approve", "accessRequests.create", "accessRequests.dismiss", "accessRequests.info",
 		"attachments.create", "attachments.delete", "attachments.redirect",
 		"auth.config", "auth.info",
@@ -105,9 +92,34 @@ func TestAllOpenAPIMethodsHaveCommands(t *testing.T) {
 		"templates.create", "templates.delete", "templates.duplicate", "templates.info", "templates.list", "templates.restore", "templates.update",
 		"users.activate", "users.delete", "users.info", "users.invite", "users.list", "users.suspend", "users.update", "users.update_role",
 		"views.create", "views.list",
-	} {
-		if !want[method] {
+	}
+
+	want := map[string]bool{}
+	for _, method := range officialMethods {
+		want[method] = true
+	}
+	implemented := map[string]bool{}
+	for _, spec := range outlineMethods {
+		if !want[spec.Method] {
+			t.Fatalf("extra command outside official OpenAPI inventory: %s", spec.Method)
+		}
+		implemented[spec.Method] = true
+	}
+	for _, method := range officialMethods {
+		if !implemented[method] && !existingCommandMethod(method) {
 			t.Fatalf("missing command for %s", method)
 		}
+	}
+}
+
+func existingCommandMethod(method string) bool {
+	switch method {
+	case "auth.config", "auth.info",
+		"collections.documents", "collections.info", "collections.list",
+		"comments.create", "comments.list",
+		"documents.create", "documents.info", "documents.list", "documents.search", "documents.update":
+		return true
+	default:
+		return false
 	}
 }

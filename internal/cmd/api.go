@@ -82,14 +82,9 @@ var outlineMethods = []methodSpec{
 	{Group: "access-requests", Action: "approve", Method: "accessRequests.approve", Short: "Approve an access request", Flags: fields(s("id", "id", "Access request ID"), s("permission", "permission", "Permission")), Required: []string{"id"}},
 	{Group: "access-requests", Action: "dismiss", Method: "accessRequests.dismiss", Short: "Dismiss an access request", Flags: fields(s("id", "id", "Access request ID")), Required: []string{"id"}},
 
-	{Group: "attachments", Action: "list", Method: "attachments.list", Short: "List attachments", Flags: fields(s("document", "documentId", "Document ID"), s("user", "userId", "User ID"), limitFlag(), offsetFlag())},
 	{Group: "attachments", Action: "create", Method: "attachments.create", Short: "Create signed attachment upload instructions", Flags: fields(s("name", "name", "Attachment filename"), s("document", "documentId", "Document ID"), s("content-type", "contentType", "MIME content type"), i("size", "size", "Attachment size in bytes"), s("preset", "preset", "Attachment preset")), Required: []string{"name", "content-type", "size"}},
-	{Group: "attachments", Action: "upload", Method: "attachments.create", Short: "Create attachment instructions and upload a file", Flags: fields(s("file", "file", "File to upload"), s("name", "name", "Attachment filename"), s("document", "documentId", "Document ID"), s("content-type", "contentType", "MIME content type"), s("preset", "preset", "Attachment preset")), Required: []string{"file"}},
-	{Group: "attachments", Action: "create-from-url", Method: "attachments.createFromUrl", Short: "Create an attachment from a URL", Flags: fields(s("id", "id", "Attachment ID"), s("url", "url", "Source URL"), s("document", "documentId", "Document ID"), s("preset", "preset", "Attachment preset")), Required: []string{"url", "document"}},
 	{Group: "attachments", Action: "redirect", Method: "attachments.redirect", Short: "Retrieve an attachment", Flags: fields(s("id", "id", "Attachment ID")), Required: []string{"id"}},
 	{Group: "attachments", Action: "delete", Method: "attachments.delete", Short: "Delete an attachment", Flags: fields(s("id", "id", "Attachment ID")), Required: []string{"id"}, Destructive: true},
-
-	{Group: "auth", Action: "delete", Method: "auth.delete", Short: "Delete current session", Destructive: true},
 
 	{Group: "collections", Action: "create", Method: "collections.create", Short: "Create a collection", Flags: fields(s("name", "name", "Collection name"), s("description", "description", "Description"), s("permission", "permission", "Permission"), s("icon", "icon", "Icon"), s("color", "color", "Color"), b("sharing", "sharing", "Allow sharing")), Required: []string{"name"}},
 	{Group: "collections", Action: "update", Method: "collections.update", Short: "Update a collection", Flags: fields(s("id", "id", "Collection ID"), s("name", "name", "Collection name"), s("description", "description", "Description"), s("permission", "permission", "Permission"), s("icon", "icon", "Icon"), s("color", "color", "Color"), b("sharing", "sharing", "Allow sharing")), Required: []string{"id"}},
@@ -106,11 +101,6 @@ var outlineMethods = []methodSpec{
 	{Group: "comments", Action: "info", Method: "comments.info", Short: "Retrieve a comment", Flags: fields(s("id", "id", "Comment ID"), b("include-anchor-text", "includeAnchorText", "Include anchor text")), Required: []string{"id"}},
 	{Group: "comments", Action: "update", Method: "comments.update", Short: "Update a comment", Flags: fields(s("id", "id", "Comment ID"), j("data-json", "data", "Comment body JSON")), Required: []string{"id", "data-json"}},
 	{Group: "comments", Action: "delete", Method: "comments.delete", Short: "Delete a comment", Flags: fields(s("id", "id", "Comment ID")), Required: []string{"id"}, Destructive: true},
-	{Group: "comments", Action: "resolve", Method: "comments.resolve", Short: "Resolve a comment", Flags: fields(s("id", "id", "Comment ID")), Required: []string{"id"}},
-	{Group: "comments", Action: "unresolve", Method: "comments.unresolve", Short: "Unresolve a comment", Flags: fields(s("id", "id", "Comment ID")), Required: []string{"id"}},
-	{Group: "comments", Action: "add-reaction", Method: "comments.add_reaction", Short: "Add a comment reaction", Flags: fields(s("id", "id", "Comment ID"), s("emoji", "emoji", "Emoji reaction")), Required: []string{"id", "emoji"}},
-	{Group: "comments", Action: "remove-reaction", Method: "comments.remove_reaction", Short: "Remove a comment reaction", Flags: fields(s("id", "id", "Comment ID"), s("emoji", "emoji", "Emoji reaction")), Required: []string{"id", "emoji"}},
-
 	{Group: "data-attributes", Action: "info", Method: "dataAttributes.info", Short: "Retrieve a data attribute", Flags: fields(s("id", "id", "Data attribute ID")), Required: []string{"id"}},
 	{Group: "data-attributes", Action: "list", Method: "dataAttributes.list", Short: "List data attributes", Flags: fields(limitFlag(), offsetFlag())},
 	{Group: "data-attributes", Action: "create", Method: "dataAttributes.create", Short: "Create a data attribute", Flags: fields(s("name", "name", "Name"), s("description", "description", "Description"), s("data-type", "dataType", "Data type"), j("options-json", "options", "Options JSON"), b("pinned", "pinned", "Pinned")), Required: []string{"name", "data-type"}},
@@ -123,7 +113,6 @@ var outlineMethods = []methodSpec{
 	{Group: "documents", Action: "drafts", Method: "documents.drafts", Short: "List draft documents", Flags: commonListFields()},
 	{Group: "documents", Action: "insights", Method: "documents.insights", Short: "Retrieve document insights", Flags: fields(s("id", "id", "Document ID"), s("start-date", "startDate", "Start date"), s("end-date", "endDate", "End date")), Required: []string{"id"}},
 	{Group: "documents", Action: "users", Method: "documents.users", Short: "List document users", Flags: fields(s("id", "id", "Document ID"), s("query", "query", "Query"), s("user", "userId", "User ID"), limitFlag(), offsetFlag()), Required: []string{"id"}},
-	{Group: "documents", Action: "children", Method: "documents.documents", Short: "Retrieve document child structure", Flags: fields(s("id", "id", "Document ID")), Required: []string{"id"}},
 	{Group: "documents", Action: "documents", Method: "documents.documents", Short: "Retrieve document child structure", Flags: fields(s("id", "id", "Document ID")), Required: []string{"id"}},
 	{Group: "documents", Action: "export", Method: "documents.export", Short: "Export a document", Flags: fields(s("id", "id", "Document ID"), s("paper-size", "paperSize", "PDF paper size"), i("signed-urls", "signedUrls", "Signed URL lifetime seconds"), b("include-child-documents", "includeChildDocuments", "Include child documents"), s("out", "out", "Output file"), s("accept", "accept", "Accept header")), Required: []string{"id"}, Binary: binarySpec{Enabled: true, Accept: "application/json"}},
 	{Group: "documents", Action: "restore", Method: "documents.restore", Short: "Restore a document", Flags: fields(s("id", "id", "Document ID"), s("collection", "collectionId", "Collection ID"), s("revision", "revisionId", "Revision ID")), Required: []string{"id"}},
@@ -133,14 +122,14 @@ var outlineMethods = []methodSpec{
 	{Group: "documents", Action: "duplicate", Method: "documents.duplicate", Short: "Duplicate a document", Flags: fields(s("id", "id", "Document ID"), s("title", "title", "Title"), b("recursive", "recursive", "Recursive"), b("publish", "publish", "Publish"), s("collection", "collectionId", "Collection ID"), s("parent-document", "parentDocumentId", "Parent document ID")), Required: []string{"id"}},
 	{Group: "documents", Action: "move", Method: "documents.move", Short: "Move a document", Flags: fields(s("id", "id", "Document ID"), s("collection", "collectionId", "Collection ID"), s("parent-document", "parentDocumentId", "Parent document ID"), i("index", "index", "Index")), Required: []string{"id"}},
 	{Group: "documents", Action: "archive", Method: "documents.archive", Short: "Archive a document", Flags: fields(s("id", "id", "Document ID")), Required: []string{"id"}},
-	{Group: "documents", Action: "delete", Method: "documents.delete", Short: "Delete a document", Flags: fields(s("id", "id", "Document ID"), b("permanent", "permanent", "Permanently delete")), Required: []string{"id"}},
+	{Group: "documents", Action: "delete", Method: "documents.delete", Short: "Delete a document", Flags: fields(s("id", "id", "Document ID"), b("permanent", "permanent", "Permanently delete")), Required: []string{"id"}, Destructive: true},
 	{Group: "documents", Action: "unpublish", Method: "documents.unpublish", Short: "Unpublish a document", Flags: fields(s("id", "id", "Document ID"), b("detach", "detach", "Detach")), Required: []string{"id"}},
 	{Group: "documents", Action: "import", Method: "documents.import", Short: "Import a file as a document", Flags: fields(s("file", "file", "File to import"), s("collection", "collectionId", "Collection ID"), s("parent-document", "parentDocumentId", "Parent document ID"), b("publish", "publish", "Publish"), s("content-type", "contentType", "File content type")), Required: []string{"file"}, Multipart: multipartSpec{Enabled: true, FileField: "file", FileFlag: "file", ContentFlag: "content-type"}},
 	{Group: "documents", Action: "add-user", Method: "documents.add_user", Short: "Add a document user", Flags: fields(s("id", "id", "Document ID"), s("user", "userId", "User ID"), s("permission", "permission", "Permission")), Required: []string{"id", "user"}},
-	{Group: "documents", Action: "remove-user", Method: "documents.remove_user", Short: "Remove a document user", Flags: fields(s("id", "id", "Document ID"), s("user", "userId", "User ID")), Required: []string{"id", "user"}},
+	{Group: "documents", Action: "remove-user", Method: "documents.remove_user", Short: "Remove a document user", Flags: fields(s("id", "id", "Document ID"), s("user", "userId", "User ID")), Required: []string{"id", "user"}, Destructive: true},
 	{Group: "documents", Action: "memberships", Method: "documents.memberships", Short: "List document memberships", Flags: fields(s("id", "id", "Document ID"), s("query", "query", "Query"), s("permission", "permission", "Permission"), limitFlag(), offsetFlag()), Required: []string{"id"}},
 	{Group: "documents", Action: "add-group", Method: "documents.add_group", Short: "Add a group to a document", Flags: fields(s("id", "id", "Document ID"), s("group", "groupId", "Group ID"), s("permission", "permission", "Permission")), Required: []string{"id", "group"}},
-	{Group: "documents", Action: "remove-group", Method: "documents.remove_group", Short: "Remove a group from a document", Flags: fields(s("id", "id", "Document ID"), s("group", "groupId", "Group ID")), Required: []string{"id", "group"}},
+	{Group: "documents", Action: "remove-group", Method: "documents.remove_group", Short: "Remove a group from a document", Flags: fields(s("id", "id", "Document ID"), s("group", "groupId", "Group ID")), Required: []string{"id", "group"}, Destructive: true},
 	{Group: "documents", Action: "group-memberships", Method: "documents.group_memberships", Short: "List document group memberships", Flags: fields(s("id", "id", "Document ID"), s("query", "query", "Query"), s("permission", "permission", "Permission"), limitFlag(), offsetFlag())},
 	{Group: "documents", Action: "empty-trash", Method: "documents.empty_trash", Short: "Empty trash", Destructive: true},
 
@@ -173,9 +162,6 @@ var outlineMethods = []methodSpec{
 
 	{Group: "revisions", Action: "info", Method: "revisions.info", Short: "Retrieve a revision", Flags: fields(s("id", "id", "Revision ID")), Required: []string{"id"}},
 	{Group: "revisions", Action: "list", Method: "revisions.list", Short: "List revisions", Flags: fields(s("document", "documentId", "Document ID"), s("sort", "sort", "Sort"), s("direction", "direction", "Direction"), limitFlag(), offsetFlag())},
-	{Group: "revisions", Action: "update", Method: "revisions.update", Short: "Update a revision", Flags: fields(s("id", "id", "Revision ID"), s("name", "name", "Revision name")), Required: []string{"id"}},
-	{Group: "revisions", Action: "delete", Method: "revisions.delete", Short: "Delete a revision", Flags: fields(s("id", "id", "Revision ID")), Required: []string{"id"}, Destructive: true},
-	{Group: "revisions", Action: "export", Method: "revisions.export", Short: "Export a revision", Flags: fields(s("id", "id", "Revision ID")), Required: []string{"id"}},
 
 	{Group: "shares", Action: "info", Method: "shares.info", Short: "Retrieve a share", Flags: fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID"))},
 	{Group: "shares", Action: "list", Method: "shares.list", Short: "List shares", Flags: fields(s("document", "documentId", "Document ID"), s("collection", "collectionId", "Collection ID"), s("query", "query", "Query"), s("sort", "sort", "Sort"), s("direction", "direction", "Direction"), limitFlag(), offsetFlag())},
@@ -254,7 +240,14 @@ func newAPIRootCommands() []*cobra.Command {
 		}
 		group.AddCommand(newMethodCommand(spec))
 	}
+	if attachments := groups["attachments"]; attachments != nil {
+		attachments.AddCommand(newAttachmentUploadCmd())
+	}
 	return commands
+}
+
+func newAttachmentUploadCmd() *cobra.Command {
+	return newMethodCommand(methodSpec{Group: "attachments", Action: "upload", Method: "attachments.create", Short: "Create attachment instructions and upload a file", Flags: fields(s("file", "file", "File to upload"), s("name", "name", "Attachment filename"), s("document", "documentId", "Document ID"), s("content-type", "contentType", "MIME content type"), s("preset", "preset", "Attachment preset")), Required: []string{"file"}})
 }
 
 func hasCommand(group *cobra.Command, name string) bool {
