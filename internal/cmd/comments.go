@@ -16,11 +16,16 @@ func newCommentsListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List document comments",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRPC(cmd, "comments.list", map[string]any{"documentId": documentID})
+			resolvedDocumentID, err := aliasedStringFlagValue(cmd, "document", "document-id")
+			if err != nil {
+				return err
+			}
+			return runRPC(cmd, "comments.list", map[string]any{"documentId": resolvedDocumentID})
 		},
 	}
 	cmd.Flags().StringVar(&documentID, "document", "", "Document ID")
-	_ = cmd.MarkFlagRequired("document")
+	cmd.Flags().String("document-id", "", "Document ID (alias)")
+	cmd.MarkFlagsOneRequired("document", "document-id")
 	return cmd
 }
 
@@ -32,12 +37,17 @@ func newCommentsCreateCmd() *cobra.Command {
 		Use:   "create",
 		Short: "Create a document comment",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRPC(cmd, "comments.create", map[string]any{"documentId": documentID, "text": text})
+			resolvedDocumentID, err := aliasedStringFlagValue(cmd, "document", "document-id")
+			if err != nil {
+				return err
+			}
+			return runRPC(cmd, "comments.create", map[string]any{"documentId": resolvedDocumentID, "text": text})
 		},
 	}
 	cmd.Flags().StringVar(&documentID, "document", "", "Document ID")
+	cmd.Flags().String("document-id", "", "Document ID (alias)")
 	cmd.Flags().StringVar(&text, "text", "", "Markdown text")
-	_ = cmd.MarkFlagRequired("document")
+	cmd.MarkFlagsOneRequired("document", "document-id")
 	_ = cmd.MarkFlagRequired("text")
 	return cmd
 }

@@ -33,14 +33,22 @@ func newCollectionsInfoCmd() *cobra.Command {
 }
 
 func newCollectionsTreeCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "tree <collection-id>",
+	var collectionID string
+
+	cmd := &cobra.Command{
+		Use:   "tree [collection-id]",
 		Short: "Show collection document tree",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRPC(cmd, "collections.documents", map[string]any{"id": args[0]})
+			resolvedID, err := idFromFlagOrArg(collectionID, args, "collection ID")
+			if err != nil {
+				return err
+			}
+			return runRPC(cmd, "collections.documents", map[string]any{"id": resolvedID})
 		},
 	}
+	cmd.Flags().StringVar(&collectionID, "id", "", "Collection ID")
+	return cmd
 }
 
 func rpcCommand(use, short, method string, payload map[string]any) *cobra.Command {
