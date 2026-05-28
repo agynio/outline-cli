@@ -119,5 +119,4 @@ func newAuthConfigCmd() *cobra.Command {
 }
 
 func init() {
-	rootCmd.AddCommand(newAuthCmd())
 }

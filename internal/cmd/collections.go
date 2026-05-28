@@ -62,5 +62,4 @@ func runRPC(cmd *cobra.Command, method string, payload map[string]any) error {
 }
 
 func init() {
-	rootCmd.AddCommand(newCollectionsCmd())
 }

@@ -43,5 +43,4 @@ func newCommentsCreateCmd() *cobra.Command {
 }
 
 func init() {
-	rootCmd.AddCommand(newCommentsCmd())
 }
