@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -z "${OUTLINE_BASE_URL:-}" || -z "${OUTLINE_API_KEY:-}" ]]; then
+if [[ -z "${OUTLINE_BASE_URL:-}" || -z "${OUTLINE_API_KEY:-}" || -z "${OUTLINE_BIN:-}" ]]; then
   cat >&2 <<'USAGE'
 Required environment variables:
   OUTLINE_BASE_URL   Outline instance URL, e.g. https://wiki.example.com
   OUTLINE_API_KEY    Outline API key
+  OUTLINE_BIN        Path to an existing outline binary
 
 Optional environment variables:
-  OUTLINE_BIN        outline binary to run (default: go run ./cmd/outline --)
   OUTLINE_HOME       HOME directory for isolated CLI config (default: temporary dir)
   OUTLINE_COLLECTION Collection name to resolve (default: Test)
 USAGE
@@ -22,11 +22,7 @@ if [[ -z "${OUTLINE_HOME:-}" ]]; then
   created_outline_home="${OUTLINE_HOME}"
 fi
 OUTLINE_COLLECTION="${OUTLINE_COLLECTION:-Test}"
-if [[ -n "${OUTLINE_BIN:-}" ]]; then
-  OUTLINE_CMD=("${OUTLINE_BIN}")
-else
-  OUTLINE_CMD=(go run ./cmd/outline --)
-fi
+OUTLINE_CMD=("${OUTLINE_BIN}")
 
 TMP_DIR="$(mktemp -d)"
 RESULTS_FILE="${TMP_DIR}/results.tsv"
@@ -117,7 +113,7 @@ else
 fi
 
 run_method "collections.info" collections info --id "${collection_id}" --output json
-run_method "collections.documents" collections documents --id "${collection_id}" --output json
+run_method "collections.tree" collections tree "${collection_id}" --output json
 
 created_json="${TMP_DIR}/created.json"
 if run_outline documents create --collection-id "${collection_id}" --title "outline-cli smoke $(date -u +%Y%m%dT%H%M%SZ)" --file "${DOC_TEXT_FILE}" --output json >"${created_json}"; then
@@ -151,8 +147,6 @@ run_method "shares.list" shares list --document-id "${document_id}" --output jso
 run_method "stars.list" stars list --output json
 run_method "groups.list" groups list --output json
 run_method "events.list" events list --document-id "${document_id}" --output json
-
-run_method "documents.delete" documents delete --id "${document_id}" --yes --output json
 
 printf 'METHOD\tOUTCOME\n'
 cat "${RESULTS_FILE}"

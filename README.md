@@ -57,14 +57,18 @@ method-to-outcome table.
 ```sh
 OUTLINE_BASE_URL=https://wiki.example.com \
 OUTLINE_API_KEY=ol_api_xxx \
+OUTLINE_BIN=/path/to/outline \
 scripts/integration_smoke.sh
 ```
 
 Optional variables:
 
-- `OUTLINE_BIN`: existing `outline` binary to use instead of `go run ./cmd/outline --`.
 - `OUTLINE_HOME`: custom isolated HOME for CLI config and token files.
 - `OUTLINE_COLLECTION`: collection name to resolve instead of `Test`.
+
+`OUTLINE_BIN` is required so the runner uses an existing binary instead of
+`go run`, which avoids local CGO/compiler requirements in smoke-test
+environments.
 
 Common ID aliases and ID arguments are supported for scripting compatibility,
 including `--collection`/`--collection-id`, `--document`/`--document-id`,
