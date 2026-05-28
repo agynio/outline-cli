@@ -1,0 +1,47 @@
+package cmd
+
+import "github.com/spf13/cobra"
+
+func newCommentsCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "comments", Short: "Manage Outline comments"}
+	cmd.AddCommand(newCommentsListCmd())
+	cmd.AddCommand(newCommentsCreateCmd())
+	return cmd
+}
+
+func newCommentsListCmd() *cobra.Command {
+	var documentID string
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List document comments",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRPC(cmd, "comments.list", map[string]any{"documentId": documentID})
+		},
+	}
+	cmd.Flags().StringVar(&documentID, "document", "", "Document ID")
+	_ = cmd.MarkFlagRequired("document")
+	return cmd
+}
+
+func newCommentsCreateCmd() *cobra.Command {
+	var documentID string
+	var text string
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a document comment",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRPC(cmd, "comments.create", map[string]any{"documentId": documentID, "text": text})
+		},
+	}
+	cmd.Flags().StringVar(&documentID, "document", "", "Document ID")
+	cmd.Flags().StringVar(&text, "text", "", "Markdown text")
+	_ = cmd.MarkFlagRequired("document")
+	_ = cmd.MarkFlagRequired("text")
+	return cmd
+}
+
+func init() {
+	rootCmd.AddCommand(newCommentsCmd())
+}
