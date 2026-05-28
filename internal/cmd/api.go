@@ -167,7 +167,7 @@ var outlineMethods = []methodSpec{
 	{Group: "revisions", Action: "info", Method: "revisions.info", Short: "Retrieve a revision", Flags: fields(s("id", "id", "Revision ID")), Required: []string{"id"}},
 	{Group: "revisions", Action: "list", Method: "revisions.list", Short: "List revisions", Flags: fields(s("document", "documentId", "Document ID"), s("sort", "sort", "Sort"), s("direction", "direction", "Direction"), limitFlag(), offsetFlag())},
 
-	{Group: "shares", Action: "info", Method: "shares.info", Short: "Retrieve a share", Flags: fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID"))},
+	{Group: "shares", Action: "info", Method: "shares.info", Short: "Retrieve a share", Flags: fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")), Transform: transformSharesInfo},
 	{Group: "shares", Action: "list", Method: "shares.list", Short: "List shares", Flags: fields(s("document", "documentId", "Document ID"), s("collection", "collectionId", "Collection ID"), s("query", "query", "Query"), s("sort", "sort", "Sort"), s("direction", "direction", "Direction"), limitFlag(), offsetFlag())},
 	{Group: "shares", Action: "create", Method: "shares.create", Short: "Create a share", Flags: fields(s("document", "documentId", "Document ID"), s("collection", "collectionId", "Collection ID"))},
 	{Group: "shares", Action: "update", Method: "shares.update", Short: "Update a share", Flags: fields(s("id", "id", "Share ID"), b("published", "published", "Published"), s("title", "title", "Title"), s("icon-url", "iconUrl", "Icon URL")), Required: []string{"id", "published"}},
@@ -392,7 +392,71 @@ func runMethodCommand(cmd *cobra.Command, spec methodSpec, values methodValues, 
 	if spec.Binary.Enabled {
 		return runBinaryMethod(cmd, spec, payload, values)
 	}
+	if spec.Method == "shares.info" {
+		return runSharesInfo(cmd, payload)
+	}
 	return runRPC(cmd, spec.Method, payload)
+}
+
+func runSharesInfo(cmd *cobra.Command, payload map[string]any) error {
+	runContext, err := RunContextFrom(cmd)
+	if err != nil {
+		return err
+	}
+	response, err := runContext.Client.Post(cmd.Context(), "shares.info", payload)
+	if err == nil {
+		return printResponse(cmd, outline.ResponseData(response))
+	}
+	shareID := strings.TrimSpace(fmt.Sprint(payload["id"]))
+	documentID := strings.TrimSpace(fmt.Sprint(payload["documentId"]))
+	if !outline.IsNotFound(err) || shareID == "" || shareID == "<nil>" || documentID == "" || documentID == "<nil>" {
+		return err
+	}
+	response, err = runContext.Client.Post(cmd.Context(), "shares.info", map[string]any{"documentId": documentID})
+	if err != nil {
+		return err
+	}
+	return printResponse(cmd, shareFromDocumentShareResponse(response, shareID))
+}
+
+func shareFromDocumentShareResponse(response map[string]any, shareID string) any {
+	data := outline.ResponseData(response)
+	if share, ok := data.(map[string]any); ok {
+		if strings.TrimSpace(fmt.Sprint(share["id"])) == shareID {
+			return share
+		}
+		if shares, ok := share["shares"].([]any); ok {
+			return matchingShare(shares, shareID)
+		}
+		return share
+	}
+	if shares, ok := data.([]any); ok {
+		return matchingShare(shares, shareID)
+	}
+	return data
+}
+
+func matchingShare(shares []any, shareID string) any {
+	for _, candidate := range shares {
+		share, ok := candidate.(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(fmt.Sprint(share["id"])) == shareID {
+			return share
+		}
+	}
+	if len(shares) > 0 {
+		return shares[0]
+	}
+	return shares
+}
+
+func transformSharesInfo(cmd *cobra.Command, spec methodSpec, payload map[string]any) (map[string]any, error) {
+	if !payloadHasValue(payload, "id") && !payloadHasValue(payload, "documentId") {
+		return nil, fmt.Errorf("one of --id or --document-id is required")
+	}
+	return payload, nil
 }
 
 func transformDocumentsRestore(cmd *cobra.Command, spec methodSpec, payload map[string]any) (map[string]any, error) {

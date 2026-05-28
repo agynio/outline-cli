@@ -167,6 +167,67 @@ func TestRootDocumentsCreateCollectionIDPayloadIsVerbatim(t *testing.T) {
 	}
 }
 
+func TestSharesInfoFallsBackFromIDToDocumentID(t *testing.T) {
+	const shareID = "share-1"
+	const documentID = "doc-1"
+	requests := []map[string]any{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/shares.info" {
+			t.Fatalf("request path = %q, want /shares.info", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		requests = append(requests, payload)
+		w.Header().Set("Content-Type", "application/json")
+		if _, ok := payload["id"]; ok {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"other","documentId":"doc-1"},{"id":"share-1","documentId":"doc-1","url":"https://wiki.example.com/share-1"}]}`))
+	}))
+	defer server.Close()
+
+	cmd := newMethodCommand(methodSpec{
+		Group:     "shares",
+		Action:    "info",
+		Method:    "shares.info",
+		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
+		Transform: transformSharesInfo,
+	})
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL, "token"),
+		OutputFormat: output.FormatJSON,
+	}))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--id", shareID, "--document-id", documentID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(requests))
+	}
+	if requests[0]["id"] != shareID || requests[0]["documentId"] != documentID {
+		t.Fatalf("first request = %#v, want id and documentId", requests[0])
+	}
+	if _, ok := requests[1]["id"]; ok {
+		t.Fatalf("fallback request should not include id: %#v", requests[1])
+	}
+	if requests[1]["documentId"] != documentID {
+		t.Fatalf("fallback documentId = %v, want %s", requests[1]["documentId"], documentID)
+	}
+	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
+		t.Fatalf("stdout = %s, want matching share", stdout.String())
+	}
+	if strings.Contains(stdout.String(), `"id": "other"`) {
+		t.Fatalf("stdout = %s, should filter non-matching share", stdout.String())
+	}
+}
+
 func TestDocumentsAddUserRejectsSelfInvite(t *testing.T) {
 	const selfID = "user-self"
 	requests := []string{}
