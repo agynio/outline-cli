@@ -88,6 +88,23 @@ func TestResponseErrorNotFoundDoesNotAlwaysSayUnsupported(t *testing.T) {
 	}
 }
 
+func TestResponseErrorOptionalEndpointUnsupported(t *testing.T) {
+	err := responseError(
+		&http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Header: http.Header{}},
+		[]byte(`{"message":"Not Found"}`),
+		RequestContext{Method: "documents.insights", Params: map[string]any{"id": "doc123"}},
+	)
+	if err == nil {
+		t.Fatal("responseError() expected error")
+	}
+	got := err.Error()
+	for _, want := range []string{"method=documents.insights", "id=doc123", "unsupported on this server"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error = %q, want substring %q", got, want)
+		}
+	}
+}
+
 func TestErrorMessageHandlesTopLevelError(t *testing.T) {
 	got := errorMessage([]byte(`{"error":"invalid request"}`))
 	if got != "invalid request" {

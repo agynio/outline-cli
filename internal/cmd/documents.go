@@ -92,23 +92,29 @@ func newDocumentsListCmd() *cobra.Command {
 
 func newDocumentsSearchCmd() *cobra.Command {
 	var collectionID string
+	var query string
 
 	cmd := &cobra.Command{
-		Use:   "search <query>",
+		Use:   "search [query]",
 		Short: "Search documents",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedQuery, err := queryFromFlagOrArg(query, args)
+			if err != nil {
+				return err
+			}
 			resolvedCollectionID, err := aliasedStringFlagValue(cmd, "collection", "collection-id")
 			if err != nil {
 				return err
 			}
-			payload := map[string]any{"query": args[0]}
+			payload := map[string]any{"query": resolvedQuery}
 			if resolvedCollectionID != "" {
 				payload["collectionId"] = resolvedCollectionID
 			}
 			return runRPC(cmd, "documents.search", payload)
 		},
 	}
+	cmd.Flags().StringVar(&query, "query", "", "Search query")
 	cmd.Flags().StringVar(&collectionID, "collection", "", "Collection ID")
 	cmd.Flags().String("collection-id", "", "Collection ID (alias)")
 	return cmd
@@ -216,6 +222,10 @@ func idFromFlagOrArg(flagValue string, args []string, label string) (string, err
 		return "", fmt.Errorf("use either --id or %s argument, not both", label)
 	}
 	return trimmedArg, nil
+}
+
+func queryFromFlagOrArg(flagValue string, args []string) (string, error) {
+	return idFromFlagOrArg(flagValue, args, "query")
 }
 
 func aliasedStringFlagValue(cmd *cobra.Command, name string, alias string) (string, error) {

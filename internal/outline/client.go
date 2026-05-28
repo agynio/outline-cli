@@ -257,9 +257,12 @@ func responseError(resp *http.Response, body []byte, request RequestContext) err
 		return fmt.Errorf("outline request failed%s: rate limited", requestContextLabel(request))
 	case http.StatusNotFound:
 		if message == "" {
+			if optionalEndpoint(request.Method) {
+				return fmt.Errorf("outline request failed%s: unsupported on this server", requestContextLabel(request))
+			}
 			return fmt.Errorf("outline request failed%s: not found", requestContextLabel(request))
 		}
-		if strings.Contains(strings.ToLower(message), "unsupported") {
+		if optionalEndpoint(request.Method) || strings.Contains(strings.ToLower(message), "unsupported") {
 			return fmt.Errorf("outline request failed%s: unsupported on this server: %s", requestContextLabel(request), message)
 		}
 		return fmt.Errorf("outline request failed%s: not found: %s", requestContextLabel(request), message)
@@ -269,6 +272,15 @@ func responseError(resp *http.Response, body []byte, request RequestContext) err
 		return fmt.Errorf("outline request failed%s: %s", requestContextLabel(request), resp.Status)
 	}
 	return fmt.Errorf("outline request failed%s: %s: %s", requestContextLabel(request), resp.Status, message)
+}
+
+func optionalEndpoint(method string) bool {
+	switch method {
+	case "dataAttributes.list", "documents.insights", "documents.answerQuestion":
+		return true
+	default:
+		return false
+	}
 }
 
 func requestContextLabel(request RequestContext) string {
