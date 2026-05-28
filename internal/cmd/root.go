@@ -27,9 +27,12 @@ var (
 	outputFlag  string
 )
 
+var versionInfo = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:          "outline",
 	Short:        "Outline CLI",
+	Version:      versionInfo,
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -74,6 +77,11 @@ var rootCmd = &cobra.Command{
 		}))
 		return nil
 	},
+}
+
+func SetVersionInfo(version, commit, date string) {
+	versionInfo = fmt.Sprintf("%s (commit %s, built %s)", version, commit, date)
+	rootCmd.Version = versionInfo
 }
 
 func Execute() {

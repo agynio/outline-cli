@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+
+      - name: Vet
+        env:
+          CGO_ENABLED: "0"
+        run: go vet ./...
+
+      - name: Test
+        env:
+          CGO_ENABLED: "0"
+        run: go test ./...
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: tar.gz
+          - goos: linux
+            goarch: arm64
+            archive: tar.gz
+          - goos: darwin
+            goarch: amd64
+            archive: tar.gz
+          - goos: darwin
+            goarch: arm64
+            archive: tar.gz
+          - goos: windows
+            goarch: amd64
+            archive: zip
+          - goos: windows
+            goarch: arm64
+            archive: zip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+
+      - name: Build archive
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist package
+          binary="outline"
+          if [ "${GOOS}" = "windows" ]; then
+            binary="outline.exe"
+          fi
+
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "package/${binary}" \
+            ./cmd/outline
+
+          asset="outline_${VERSION}_${GOOS}_${GOARCH}.${{ matrix.archive }}"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            (cd package && zip -q "../dist/${asset}" "${binary}")
+          else
+            tar -C package -czf "dist/${asset}" "${binary}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: outline-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
