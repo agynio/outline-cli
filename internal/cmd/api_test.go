@@ -25,6 +25,26 @@ func TestBuildPayloadParsesRepresentativeEndpoint(t *testing.T) {
 	}
 }
 
+func TestViewsCreateUsesDocumentIDFlag(t *testing.T) {
+	cmd := findCommand(t, newAPIRootCommands(), "views", "create")
+	if cmd.Flags().Lookup("document-id") == nil {
+		t.Fatal("views create missing --document-id flag")
+	}
+	if cmd.Flags().Lookup("document") != nil {
+		t.Fatal("views create should not expose --document flag")
+	}
+}
+
+func TestCollectionsInfoUsesIDFlag(t *testing.T) {
+	cmd := findCommand(t, newAPIRootCommands(), "collections", "info")
+	if cmd.Flags().Lookup("id") == nil {
+		t.Fatal("collections info missing --id flag")
+	}
+	if strings.Contains(cmd.Use, "<") {
+		t.Fatalf("collections info use = %q, should not require positional ID", cmd.Use)
+	}
+}
+
 func TestBuildPayloadParsesJSONFlag(t *testing.T) {
 	spec := methodSpec{Flags: fields(j("data-json", "data", "Data JSON")), Required: []string{"data-json"}}
 	cmd := &cobra.Command{}
@@ -122,4 +142,20 @@ func existingCommandMethod(method string) bool {
 	default:
 		return false
 	}
+}
+
+func findCommand(t *testing.T, roots []*cobra.Command, groupName string, commandName string) *cobra.Command {
+	t.Helper()
+	for _, root := range roots {
+		if root.Name() != groupName {
+			continue
+		}
+		for _, command := range root.Commands() {
+			if command.Name() == commandName {
+				return command
+			}
+		}
+	}
+	t.Fatalf("command %s %s not found", groupName, commandName)
+	return nil
 }

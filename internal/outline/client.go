@@ -32,6 +32,11 @@ type BinaryResponse struct {
 	ContentType string
 }
 
+type RequestContext struct {
+	Method string
+	Params map[string]any
+}
+
 func NewClient(baseURL, token string) *Client {
 	return &Client{
 		baseURL: baseURL,
@@ -43,13 +48,9 @@ func NewClient(baseURL, token string) *Client {
 }
 
 func (c *Client) Post(ctx context.Context, method string, payload any) (map[string]any, error) {
-	body := []byte("{}")
-	if payload != nil {
-		encoded, err := json.Marshal(payload)
-		if err != nil {
-			return nil, fmt.Errorf("encode request: %w", err)
-		}
-		body = encoded
+	body, err := encodeJSONBody(payload)
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := c.do(ctx, method, bytes.NewReader(body), "application/json", "application/json")
@@ -58,7 +59,7 @@ func (c *Client) Post(ctx context.Context, method string, payload any) (map[stri
 	}
 	defer resp.Body.Close()
 
-	data, err := readResponse(resp)
+	data, err := readResponse(resp, RequestContext{Method: method, Params: payloadParams(payload)})
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +93,7 @@ func (c *Client) PostMultipart(ctx context.Context, method string, fields map[st
 	}
 	defer resp.Body.Close()
 
-	data, err := readResponse(resp)
+	data, err := readResponse(resp, RequestContext{Method: method, Params: stringMapParams(fields)})
 	if err != nil {
 		return nil, err
 	}
@@ -105,13 +106,9 @@ func (c *Client) PostMultipart(ctx context.Context, method string, fields map[st
 }
 
 func (c *Client) PostBinary(ctx context.Context, method string, payload any, accept string) (BinaryResponse, error) {
-	body := []byte("{}")
-	if payload != nil {
-		encoded, err := json.Marshal(payload)
-		if err != nil {
-			return BinaryResponse{}, fmt.Errorf("encode request: %w", err)
-		}
-		body = encoded
+	body, err := encodeJSONBody(payload)
+	if err != nil {
+		return BinaryResponse{}, err
 	}
 
 	resp, err := c.do(ctx, method, bytes.NewReader(body), "application/json", accept)
@@ -120,7 +117,7 @@ func (c *Client) PostBinary(ctx context.Context, method string, payload any, acc
 	}
 	defer resp.Body.Close()
 
-	data, err := readResponse(resp)
+	data, err := readResponse(resp, RequestContext{Method: method, Params: payloadParams(payload)})
 	if err != nil {
 		return BinaryResponse{}, err
 	}
@@ -144,15 +141,47 @@ func (c *Client) do(ctx context.Context, method string, body io.Reader, contentT
 	return resp, nil
 }
 
-func readResponse(resp *http.Response) ([]byte, error) {
+func encodeJSONBody(payload any) ([]byte, error) {
+	if payload == nil {
+		return []byte("{}"), nil
+	}
+	if payloadMap, ok := payload.(map[string]any); ok && len(payloadMap) == 0 {
+		return []byte("{}"), nil
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+	if bytes.Equal(encoded, []byte("null")) {
+		return []byte("{}"), nil
+	}
+	return encoded, nil
+}
+
+func readResponse(resp *http.Response, request RequestContext) ([]byte, error) {
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, responseError(resp, data)
+		return nil, responseError(resp, data, request)
 	}
 	return data, nil
+}
+
+func payloadParams(payload any) map[string]any {
+	if payloadMap, ok := payload.(map[string]any); ok {
+		return payloadMap
+	}
+	return nil
+}
+
+func stringMapParams(values map[string]string) map[string]any {
+	params := make(map[string]any, len(values))
+	for key, value := range values {
+		params[key] = value
+	}
+	return params
 }
 
 func writeMultipartFile(writer *multipart.Writer, filePart FilePart) error {
@@ -210,7 +239,7 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(req)
 }
 
-func responseError(resp *http.Response, body []byte) error {
+func responseError(resp *http.Response, body []byte, request RequestContext) error {
 	message := strings.TrimSpace(string(body))
 	if extracted := errorMessage(body); extracted != "" {
 		message = extracted
@@ -218,25 +247,49 @@ func responseError(resp *http.Response, body []byte) error {
 
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
-		return fmt.Errorf("outline request failed: unauthorized; check the API key with 'outline auth login'")
+		return fmt.Errorf("outline request failed%s: unauthorized; check the API key with 'outline auth login'", requestContextLabel(request))
 	case http.StatusForbidden:
-		return fmt.Errorf("outline request failed: forbidden; the API key does not have access to this resource")
+		return fmt.Errorf("outline request failed%s: forbidden; the API key does not have access to this resource", requestContextLabel(request))
 	case http.StatusTooManyRequests:
 		if retryAfter := retryAfterMessage(resp.Header.Get("Retry-After")); retryAfter != "" {
-			return fmt.Errorf("outline request failed: rate limited; retry after %s", retryAfter)
+			return fmt.Errorf("outline request failed%s: rate limited; retry after %s", requestContextLabel(request), retryAfter)
 		}
-		return fmt.Errorf("outline request failed: rate limited")
+		return fmt.Errorf("outline request failed%s: rate limited", requestContextLabel(request))
 	case http.StatusNotFound:
 		if message == "" {
-			return fmt.Errorf("outline request failed: unsupported on this server or not found")
+			return fmt.Errorf("outline request failed%s: not found", requestContextLabel(request))
 		}
-		return fmt.Errorf("outline request failed: unsupported on this server or not found: %s", message)
+		if strings.Contains(strings.ToLower(message), "unsupported") {
+			return fmt.Errorf("outline request failed%s: unsupported on this server: %s", requestContextLabel(request), message)
+		}
+		return fmt.Errorf("outline request failed%s: not found: %s", requestContextLabel(request), message)
 	}
 
 	if message == "" {
-		return fmt.Errorf("outline request failed: %s", resp.Status)
+		return fmt.Errorf("outline request failed%s: %s", requestContextLabel(request), resp.Status)
 	}
-	return fmt.Errorf("outline request failed: %s: %s", resp.Status, message)
+	return fmt.Errorf("outline request failed%s: %s: %s", requestContextLabel(request), resp.Status, message)
+}
+
+func requestContextLabel(request RequestContext) string {
+	parts := []string{}
+	if strings.TrimSpace(request.Method) != "" {
+		parts = append(parts, "method="+request.Method)
+	}
+	for _, key := range []string{"id", "documentId", "collectionId", "userId", "groupId", "clientId", "oauthClientId"} {
+		value, ok := request.Params[key]
+		if !ok {
+			continue
+		}
+		formatted := strings.TrimSpace(fmt.Sprint(value))
+		if formatted != "" {
+			parts = append(parts, key+"="+formatted)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, " ") + ")"
 }
 
 func errorMessage(body []byte) string {

@@ -21,14 +21,18 @@ func newDocumentsCmd() *cobra.Command {
 }
 
 func newDocumentsInfoCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "info <id-or-urlId>",
+	var documentID string
+
+	cmd := &cobra.Command{
+		Use:   "info",
 		Short: "Show document details",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRPC(cmd, "documents.info", map[string]any{"id": args[0]})
+			return runRPC(cmd, "documents.info", map[string]any{"id": documentID})
 		},
 	}
+	cmd.Flags().StringVar(&documentID, "id", "", "Document ID or urlId")
+	_ = cmd.MarkFlagRequired("id")
+	return cmd
 }
 
 func newDocumentsPullCmd() *cobra.Command {

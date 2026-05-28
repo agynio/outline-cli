@@ -26,7 +26,7 @@ The default output format is YAML. JSON is available for debugging, and
 ```sh
 outline collections list
 outline documents pull <id-or-urlId>
-outline documents info <id-or-urlId> --output json
+outline documents info --id <id-or-urlId> --output json
 ```
 
 ## Safety confirmations
