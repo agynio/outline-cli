@@ -20,7 +20,8 @@ func newCommentsListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&documentID, "document", "", "Document ID")
-	_ = cmd.MarkFlagRequired("document")
+	cmd.Flags().StringVar(&documentID, "document-id", "", "Document ID (alias)")
+	cmd.MarkFlagsOneRequired("document", "document-id")
 	return cmd
 }
 
@@ -36,8 +37,9 @@ func newCommentsCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&documentID, "document", "", "Document ID")
+	cmd.Flags().StringVar(&documentID, "document-id", "", "Document ID (alias)")
 	cmd.Flags().StringVar(&text, "text", "", "Markdown text")
-	_ = cmd.MarkFlagRequired("document")
+	cmd.MarkFlagsOneRequired("document", "document-id")
 	_ = cmd.MarkFlagRequired("text")
 	return cmd
 }

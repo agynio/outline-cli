@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/agynio/outline-cli/internal/outline"
 	"github.com/agynio/outline-cli/internal/output"
@@ -36,16 +37,22 @@ func newDocumentsInfoCmd() *cobra.Command {
 }
 
 func newDocumentsPullCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "pull <id-or-urlId>",
+	var documentID string
+
+	cmd := &cobra.Command{
+		Use:   "pull [id-or-urlId]",
 		Short: "Print document Markdown",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedID, err := idFromFlagOrArg(documentID, args, "document ID or urlId")
+			if err != nil {
+				return err
+			}
 			runContext, err := RunContextFrom(cmd)
 			if err != nil {
 				return err
 			}
-			response, err := runContext.Client.Post(cmd.Context(), "documents.info", map[string]any{"id": args[0]})
+			response, err := runContext.Client.Post(cmd.Context(), "documents.info", map[string]any{"id": resolvedID})
 			if err != nil {
 				return err
 			}
@@ -56,6 +63,8 @@ func newDocumentsPullCmd() *cobra.Command {
 			return output.Print(cmd.OutOrStdout(), output.FormatMD, output.Markdown{Text: text})
 		},
 	}
+	cmd.Flags().StringVar(&documentID, "id", "", "Document ID or urlId")
+	return cmd
 }
 
 func newDocumentsListCmd() *cobra.Command {
@@ -100,34 +109,75 @@ func newDocumentsCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&collectionID, "collection", "", "Collection ID")
+	cmd.Flags().StringVar(&collectionID, "collection-id", "", "Collection ID (alias)")
 	cmd.Flags().StringVar(&title, "title", "", "Document title")
 	cmd.Flags().StringVar(&filePath, "file", "", "Markdown file")
 	cmd.Flags().StringVar(&text, "text", "", "Markdown text")
 	cmd.Flags().BoolVar(&publish, "publish", false, "Publish document")
-	_ = cmd.MarkFlagRequired("collection")
+	cmd.MarkFlagsOneRequired("collection", "collection-id")
 	_ = cmd.MarkFlagRequired("title")
 	return cmd
 }
 
 func newDocumentsUpdateCmd() *cobra.Command {
+	var documentID string
+	var collectionID string
 	var filePath string
 	var text string
 
 	cmd := &cobra.Command{
-		Use:   "update <id>",
+		Use:   "update [id]",
 		Short: "Update a document",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			markdown, err := markdownInput(filePath, text)
+			resolvedID, err := idFromFlagOrArg(documentID, args, "document ID")
 			if err != nil {
 				return err
 			}
-			return runRPC(cmd, "documents.update", map[string]any{"id": args[0], "text": markdown})
+
+			trimmedCollectionID := strings.TrimSpace(collectionID)
+			if filePath == "" && text == "" && trimmedCollectionID == "" {
+				return fmt.Errorf("one of --file, --text, or --collection-id is required")
+			}
+
+			payload := map[string]any{"id": resolvedID}
+			if filePath != "" || text != "" {
+				markdown, err := markdownInput(filePath, text)
+				if err != nil {
+					return err
+				}
+				payload["text"] = markdown
+			}
+			if trimmedCollectionID != "" {
+				payload["collectionId"] = trimmedCollectionID
+			}
+			return runRPC(cmd, "documents.update", payload)
 		},
 	}
+	cmd.Flags().StringVar(&documentID, "id", "", "Document ID")
+	cmd.Flags().StringVar(&collectionID, "collection", "", "Collection ID")
+	cmd.Flags().StringVar(&collectionID, "collection-id", "", "Collection ID (alias)")
 	cmd.Flags().StringVar(&filePath, "file", "", "Markdown file")
 	cmd.Flags().StringVar(&text, "text", "", "Markdown text")
 	return cmd
+}
+
+func idFromFlagOrArg(flagValue string, args []string, label string) (string, error) {
+	trimmedFlag := strings.TrimSpace(flagValue)
+	if len(args) == 0 {
+		if trimmedFlag == "" {
+			return "", fmt.Errorf("--id or %s argument is required", label)
+		}
+		return trimmedFlag, nil
+	}
+	trimmedArg := strings.TrimSpace(args[0])
+	if trimmedArg == "" {
+		return "", fmt.Errorf("%s argument is required", label)
+	}
+	if trimmedFlag != "" && trimmedFlag != trimmedArg {
+		return "", fmt.Errorf("use either --id or %s argument, not both", label)
+	}
+	return trimmedArg, nil
 }
 
 func markdownInput(filePath, text string) (string, error) {

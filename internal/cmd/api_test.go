@@ -30,18 +30,109 @@ func TestViewsCreateUsesDocumentIDFlag(t *testing.T) {
 	if cmd.Flags().Lookup("document-id") == nil {
 		t.Fatal("views create missing --document-id flag")
 	}
-	if cmd.Flags().Lookup("document") != nil {
-		t.Fatal("views create should not expose --document flag")
+	if cmd.Flags().Lookup("document") == nil {
+		t.Fatal("views create missing backward-compatible --document alias")
 	}
 }
 
-func TestCollectionsInfoUsesIDFlag(t *testing.T) {
-	cmd := findCommand(t, newAPIRootCommands(), "collections", "info")
-	if cmd.Flags().Lookup("id") == nil {
-		t.Fatal("collections info missing --id flag")
+func TestCommonIDFlagAliases(t *testing.T) {
+	tests := []struct {
+		group   string
+		command string
+		flags   []string
+	}{
+		{group: "documents", command: "create", flags: []string{"collection", "collection-id"}},
+		{group: "comments", command: "list", flags: []string{"document", "document-id"}},
+		{group: "collections", command: "add-user", flags: []string{"user", "user-id"}},
+		{group: "collections", command: "add-group", flags: []string{"group", "group-id"}},
+		{group: "views", command: "create", flags: []string{"document-id", "document"}},
 	}
-	if strings.Contains(cmd.Use, "<") {
-		t.Fatalf("collections info use = %q, should not require positional ID", cmd.Use)
+
+	commands := newAPIRootCommands()
+	for _, test := range tests {
+		t.Run(test.group+" "+test.command, func(t *testing.T) {
+			cmd := findCommand(t, commands, test.group, test.command)
+			for _, flag := range test.flags {
+				if cmd.Flags().Lookup(flag) == nil {
+					t.Fatalf("missing --%s", flag)
+				}
+			}
+		})
+	}
+}
+
+func TestAliasPayloadUsesCanonicalName(t *testing.T) {
+	spec := methodSpec{Flags: fields(s("collection", "collectionId", "Collection ID")), Required: []string{"collection"}}
+	cmd := &cobra.Command{}
+	values := methodValues{strings: map[string]*string{}, bools: map[string]*bool{}, ints: map[string]*int{}, stringLists: map[string]*[]string{}}
+	registerFieldFlag(cmd, values, spec.Flags[0])
+	_ = cmd.Flags().Set("collection-id", "collection-123")
+
+	payload, err := buildPayload(cmd, spec, values, nil)
+	if err != nil {
+		t.Fatalf("buildPayload() error = %v", err)
+	}
+	if payload["collectionId"] != "collection-123" {
+		t.Fatalf("collectionId = %v, want collection-123", payload["collectionId"])
+	}
+}
+
+func TestIDCommandsAcceptFlagAndOptionalArg(t *testing.T) {
+	tests := []struct {
+		name    string
+		command *cobra.Command
+		use     string
+	}{
+		{name: "collections info", command: newCollectionsInfoCmd(), use: "info"},
+		{name: "collections tree", command: newCollectionsTreeCmd(), use: "tree [collection-id]"},
+		{name: "documents info", command: newDocumentsInfoCmd(), use: "info"},
+		{name: "documents pull", command: newDocumentsPullCmd(), use: "pull [id-or-urlId]"},
+		{name: "documents update", command: newDocumentsUpdateCmd(), use: "update [id]"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.command.Flags().Lookup("id") == nil {
+				t.Fatal("missing --id flag")
+			}
+			if test.command.Use != test.use {
+				t.Fatalf("Use = %q, want %q", test.command.Use, test.use)
+			}
+		})
+	}
+}
+
+func TestIDFromFlagOrArg(t *testing.T) {
+	tests := []struct {
+		name      string
+		flagValue string
+		args      []string
+		want      string
+		wantErr   bool
+	}{
+		{name: "flag", flagValue: "doc-1", want: "doc-1"},
+		{name: "arg", args: []string{"doc-2"}, want: "doc-2"},
+		{name: "matching both", flagValue: "doc-3", args: []string{"doc-3"}, want: "doc-3"},
+		{name: "missing", wantErr: true},
+		{name: "conflict", flagValue: "doc-4", args: []string{"doc-5"}, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := idFromFlagOrArg(test.flagValue, test.args, "document ID")
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("idFromFlagOrArg() error = %v", err)
+			}
+			if got != test.want {
+				t.Fatalf("idFromFlagOrArg() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

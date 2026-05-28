@@ -36,6 +36,7 @@ type fieldSpec struct {
 	PayloadName string
 	Type        fieldType
 	Usage       string
+	Aliases     []string
 }
 
 type fieldType string
@@ -197,19 +198,42 @@ var outlineMethods = []methodSpec{
 
 func fields(values ...fieldSpec) []fieldSpec { return values }
 func s(name, payloadName, usage string) fieldSpec {
-	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldString, Usage: usage}
+	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldString, Usage: usage, Aliases: aliasesFor(name)}
 }
 func b(name, payloadName, usage string) fieldSpec {
-	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldBool, Usage: usage}
+	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldBool, Usage: usage, Aliases: aliasesFor(name)}
 }
 func i(name, payloadName, usage string) fieldSpec {
-	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldInt, Usage: usage}
+	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldInt, Usage: usage, Aliases: aliasesFor(name)}
 }
 func sl(name, payloadName, usage string) fieldSpec {
-	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldStringList, Usage: usage}
+	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldStringList, Usage: usage, Aliases: aliasesFor(name)}
 }
 func j(name, payloadName, usage string) fieldSpec {
-	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldJSON, Usage: usage}
+	return fieldSpec{Name: name, PayloadName: payloadName, Type: fieldJSON, Usage: usage, Aliases: aliasesFor(name)}
+}
+
+func aliasesFor(name string) []string {
+	switch name {
+	case "collection":
+		return []string{"collection-id"}
+	case "collection-id":
+		return []string{"collection"}
+	case "document":
+		return []string{"document-id"}
+	case "document-id":
+		return []string{"document"}
+	case "group":
+		return []string{"group-id"}
+	case "group-id":
+		return []string{"group"}
+	case "user":
+		return []string{"user-id"}
+	case "user-id":
+		return []string{"user"}
+	default:
+		return nil
+	}
 }
 func limitFlag() fieldSpec     { return i("limit", "limit", "Pagination limit") }
 func offsetFlag() fieldSpec    { return i("offset", "offset", "Pagination offset") }
@@ -299,18 +323,34 @@ func registerFieldFlag(cmd *cobra.Command, values methodValues, field fieldSpec)
 		value := ""
 		values.strings[field.Name] = &value
 		cmd.Flags().StringVar(&value, field.Name, "", field.Usage)
+		for _, alias := range field.Aliases {
+			values.strings[alias] = &value
+			cmd.Flags().StringVar(&value, alias, "", field.Usage+" (alias)")
+		}
 	case fieldBool:
 		value := false
 		values.bools[field.Name] = &value
 		cmd.Flags().BoolVar(&value, field.Name, false, field.Usage)
+		for _, alias := range field.Aliases {
+			values.bools[alias] = &value
+			cmd.Flags().BoolVar(&value, alias, false, field.Usage+" (alias)")
+		}
 	case fieldInt:
 		value := 0
 		values.ints[field.Name] = &value
 		cmd.Flags().IntVar(&value, field.Name, 0, field.Usage)
+		for _, alias := range field.Aliases {
+			values.ints[alias] = &value
+			cmd.Flags().IntVar(&value, alias, 0, field.Usage+" (alias)")
+		}
 	case fieldStringList:
 		value := []string{}
 		values.stringLists[field.Name] = &value
 		cmd.Flags().StringArrayVar(&value, field.Name, nil, field.Usage)
+		for _, alias := range field.Aliases {
+			values.stringLists[alias] = &value
+			cmd.Flags().StringArrayVar(&value, alias, nil, field.Usage+" (alias)")
+		}
 	default:
 		panic(fmt.Sprintf("unsupported field type %q", field.Type))
 	}
@@ -344,20 +384,21 @@ func buildPayload(cmd *cobra.Command, spec methodSpec, values methodValues, args
 		payload[arg.PayloadName] = args[index]
 	}
 	for _, field := range spec.Flags {
-		if !cmd.Flags().Changed(field.Name) {
+		changedName := changedFieldName(cmd, field)
+		if changedName == "" {
 			continue
 		}
 		switch field.Type {
 		case fieldString:
-			payload[field.PayloadName] = strings.TrimSpace(*values.strings[field.Name])
+			payload[field.PayloadName] = strings.TrimSpace(*values.strings[changedName])
 		case fieldBool:
-			payload[field.PayloadName] = *values.bools[field.Name]
+			payload[field.PayloadName] = *values.bools[changedName]
 		case fieldInt:
-			payload[field.PayloadName] = *values.ints[field.Name]
+			payload[field.PayloadName] = *values.ints[changedName]
 		case fieldStringList:
-			payload[field.PayloadName] = *values.stringLists[field.Name]
+			payload[field.PayloadName] = *values.stringLists[changedName]
 		case fieldJSON:
-			parsed, err := parseJSONFlag(*values.strings[field.Name], field.Name)
+			parsed, err := parseJSONFlag(*values.strings[changedName], changedName)
 			if err != nil {
 				return nil, err
 			}
@@ -378,6 +419,18 @@ func buildPayload(cmd *cobra.Command, spec methodSpec, values methodValues, args
 		delete(payload, "contentType")
 	}
 	return payload, nil
+}
+
+func changedFieldName(cmd *cobra.Command, field fieldSpec) string {
+	if cmd.Flags().Changed(field.Name) {
+		return field.Name
+	}
+	for _, alias := range field.Aliases {
+		if cmd.Flags().Changed(alias) {
+			return alias
+		}
+	}
+	return ""
 }
 
 func flagPayloadName(spec methodSpec, flagName string) string {

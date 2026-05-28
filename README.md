@@ -46,6 +46,32 @@ membership removal operations.
 - `outline attachments create ...` returns signed upload instructions.
 - `outline attachments upload --file <path> [--document <id>]` creates signed upload instructions and performs the upload.
 
+## Integration smoke runner
+
+`scripts/integration_smoke.sh` can run a curated method smoke test against a
+real Outline instance without committing credentials. It reads credentials from
+environment variables, uses an isolated temporary `HOME` by default, resolves a
+collection named `Test`, creates a temporary document, and prints a
+method-to-outcome table.
+
+```sh
+OUTLINE_BASE_URL=https://wiki.example.com \
+OUTLINE_API_KEY=ol_api_xxx \
+scripts/integration_smoke.sh
+```
+
+Optional variables:
+
+- `OUTLINE_BIN`: existing `outline` binary to use instead of `go run ./cmd/outline --`.
+- `OUTLINE_HOME`: custom isolated HOME for CLI config and token files.
+- `OUTLINE_COLLECTION`: collection name to resolve instead of `Test`.
+
+Common ID aliases and ID arguments are supported for scripting compatibility,
+including `--collection`/`--collection-id`, `--document`/`--document-id`,
+`--group`/`--group-id`, and `--user`/`--user-id`. Commands that
+historically accepted a positional ID also accept `--id` while keeping the
+positional form for compatibility.
+
 ## Full command inventory
 
 ### access-requests
