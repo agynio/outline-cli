@@ -2,13 +2,17 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -419,7 +423,13 @@ func runSharesInfo(cmd *cobra.Command, payload map[string]any) error {
 			return err
 		}
 		if !inferred {
-			return fmt.Errorf("shares.info by id returned not found and share %s was not found in shares.list; rerun with --document-id if known", shareID)
+			documentID, inferred, err = documentIDForSharePage(cmd, shareID)
+			if err != nil {
+				return err
+			}
+		}
+		if !inferred {
+			return fmt.Errorf("shares.info by id returned not found and share %s could not be resolved through shares.list or share page", shareID)
 		}
 	}
 	response, err = runContext.Client.Post(cmd.Context(), "shares.info", map[string]any{"documentId": documentID})
@@ -451,6 +461,134 @@ func documentIDForShare(cmd *cobra.Command, shareID string) (string, bool, error
 		return "", false, fmt.Errorf("share %s found in shares.list but documentId is missing", shareID)
 	}
 	return documentID, true, nil
+}
+
+func documentIDForSharePage(cmd *cobra.Command, shareID string) (string, bool, error) {
+	runContext, err := RunContextFrom(cmd)
+	if err != nil {
+		return "", false, err
+	}
+	sharePage, ok, err := fetchSharePage(cmd.Context(), runContext.BaseURL, shareID)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	if documentID, ok := documentIDFromShareHTML(sharePage); ok {
+		return documentID, true, nil
+	}
+	urlID, ok := documentURLIDFromShareHTML(sharePage)
+	if !ok {
+		return "", false, nil
+	}
+	response, err := runContext.Client.Post(cmd.Context(), "documents.info", map[string]any{"id": urlID})
+	if err != nil {
+		return "", false, err
+	}
+	documentID, ok := documentIDFromDocumentsInfo(response)
+	if !ok {
+		return "", false, fmt.Errorf("documents.info response for urlId %s did not include document id", urlID)
+	}
+	return documentID, true, nil
+}
+
+func fetchSharePage(ctx context.Context, apiBaseURL string, shareID string) (string, bool, error) {
+	publicBase := publicBaseURL(apiBaseURL)
+	if publicBase == "" {
+		return "", false, nil
+	}
+	shareURL, err := url.JoinPath(publicBase, "s", shareID)
+	if err != nil {
+		return "", false, fmt.Errorf("build share page URL: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, shareURL, nil)
+	if err != nil {
+		return "", false, fmt.Errorf("create share page request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", false, fmt.Errorf("fetch share page: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", false, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", false, fmt.Errorf("fetch share page failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false, fmt.Errorf("read share page: %w", err)
+	}
+	return string(body), true, nil
+}
+
+func publicBaseURL(apiBaseURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(apiBaseURL), "/")
+	return strings.TrimSuffix(trimmed, "/api")
+}
+
+var (
+	shareHTMLDocumentIDPattern = regexp.MustCompile(`(?i)"documentId"\s*:\s*"([^"]+)"`)
+	shareHTMLURLIDPattern      = regexp.MustCompile(`(?i)"urlId"\s*:\s*"([^"]+)"`)
+	shareHTMLDocURLPattern     = regexp.MustCompile(`(?i)(?:https?://[^"'<>\s]+)?/doc/[^"'<>\s]+`)
+)
+
+func documentIDFromShareHTML(pageHTML string) (string, bool) {
+	decoded := html.UnescapeString(pageHTML)
+	match := shareHTMLDocumentIDPattern.FindStringSubmatch(decoded)
+	if len(match) != 2 {
+		return "", false
+	}
+	documentID := strings.TrimSpace(match[1])
+	return documentID, documentID != ""
+}
+
+func documentURLIDFromShareHTML(pageHTML string) (string, bool) {
+	decoded := html.UnescapeString(pageHTML)
+	match := shareHTMLURLIDPattern.FindStringSubmatch(decoded)
+	if len(match) == 2 {
+		urlID := strings.TrimSpace(match[1])
+		if urlID != "" {
+			return urlID, true
+		}
+	}
+	for _, documentURL := range shareHTMLDocURLPattern.FindAllString(decoded, -1) {
+		if urlID, ok := urlIDFromDocumentURL(documentURL); ok {
+			return urlID, true
+		}
+	}
+	return "", false
+}
+
+func urlIDFromDocumentURL(documentURL string) (string, bool) {
+	parsedURL, err := url.Parse(documentURL)
+	if err != nil {
+		return "", false
+	}
+	documentPath := parsedURL.Path
+	if documentPath == "" {
+		documentPath = documentURL
+	}
+	parts := strings.Split(strings.Trim(documentPath, "/"), "/")
+	if len(parts) < 2 || parts[0] != "doc" {
+		return "", false
+	}
+	slug := strings.TrimSpace(parts[1])
+	separator := strings.LastIndex(slug, "-")
+	if separator < 0 || separator == len(slug)-1 {
+		return "", false
+	}
+	urlID := slug[separator+1:]
+	return urlID, urlID != ""
+}
+
+func documentIDFromDocumentsInfo(response map[string]any) (string, bool) {
+	data, ok := outline.ResponseData(response).(map[string]any)
+	if !ok {
+		return "", false
+	}
+	documentID := strings.TrimSpace(fmt.Sprint(data["id"]))
+	return documentID, documentID != "" && documentID != "<nil>"
 }
 
 func shareFromDocumentShareResponse(response map[string]any, shareID string) (any, error) {
