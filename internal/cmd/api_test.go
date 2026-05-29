@@ -324,7 +324,7 @@ func TestSharesInfoResolvesDocumentIDFromSharePage(t *testing.T) {
 			sharePageAuth = r.Header.Get("Authorization")
 			requests = append(requests, "GET /s/share-1")
 			w.Header().Set("Content-Type", "text/html")
-			_, _ = w.Write([]byte(`<html><body><a href="/doc/example-title-url123">doc</a></body></html>`))
+			_, _ = w.Write([]byte(`<html><body><a href="/s/share-1/doc/example-title-url123">doc</a></body></html>`))
 		case "/documents.info", "/api/documents.info":
 			var payload map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {

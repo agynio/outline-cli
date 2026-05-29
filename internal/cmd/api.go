@@ -530,7 +530,7 @@ func publicBaseURL(apiBaseURL string) string {
 var (
 	shareHTMLDocumentIDPattern = regexp.MustCompile(`(?i)"documentId"\s*:\s*"([^"]+)"`)
 	shareHTMLURLIDPattern      = regexp.MustCompile(`(?i)"urlId"\s*:\s*"([^"]+)"`)
-	shareHTMLDocURLPattern     = regexp.MustCompile(`(?i)(?:https?://[^"'<>\s]+)?/doc/[^"'<>\s]+`)
+	shareHTMLDocURLPattern     = regexp.MustCompile(`(?i)(?:https?://[^"'<>\s]+)?/(?:s/[^"'<>\s/]+/)?doc/[^"'<>\s]+`)
 )
 
 func documentIDFromShareHTML(pageHTML string) (string, bool) {
@@ -570,10 +570,17 @@ func urlIDFromDocumentURL(documentURL string) (string, bool) {
 		documentPath = documentURL
 	}
 	parts := strings.Split(strings.Trim(documentPath, "/"), "/")
-	if len(parts) < 2 || parts[0] != "doc" {
+	docIndex := -1
+	for index, part := range parts {
+		if part == "doc" {
+			docIndex = index
+			break
+		}
+	}
+	if docIndex < 0 || docIndex == len(parts)-1 {
 		return "", false
 	}
-	slug := strings.TrimSpace(parts[1])
+	slug := strings.TrimSpace(parts[docIndex+1])
 	separator := strings.LastIndex(slug, "-")
 	if separator < 0 || separator == len(slug)-1 {
 		return "", false
