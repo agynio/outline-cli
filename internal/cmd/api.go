@@ -461,18 +461,66 @@ func runSharesInfo(cmd *cobra.Command, payload map[string]any) error {
 			return fmt.Errorf("shares.info by id returned not found and share %s could not be resolved through cache, shares.list, or share page", shareID)
 		}
 	}
-	response, err = runContext.Client.Post(cmd.Context(), "shares.info", map[string]any{"documentId": documentID})
+	share, ok, err := shareForDocumentID(cmd, shareID, documentID)
 	if err != nil {
 		return err
 	}
-	if err := cacheSharesFromResponseWithDocumentID(runContext.BaseURL, response, documentID); err != nil {
+	if ok {
+		return printResponse(cmd, share)
+	}
+
+	if payloadHasValue(payload, "documentId") {
+		return fmt.Errorf("share %s not found in document share response", shareID)
+	}
+	documentID, inferred, err := documentIDForShare(cmd, shareID)
+	if err != nil {
 		return err
+	}
+	if inferred {
+		share, ok, err = shareForDocumentID(cmd, shareID, documentID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return printResponse(cmd, share)
+		}
+	}
+	documentID, inferred, err = documentIDForSharePage(cmd, shareID)
+	if err != nil {
+		return err
+	}
+	if inferred {
+		share, ok, err = shareForDocumentID(cmd, shareID, documentID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return printResponse(cmd, share)
+		}
+	}
+	return fmt.Errorf("shares.info by id returned not found and share %s could not be resolved through cache, shares.list, or share page", shareID)
+}
+
+func shareForDocumentID(cmd *cobra.Command, shareID string, documentID string) (any, bool, error) {
+	runContext, err := RunContextFrom(cmd)
+	if err != nil {
+		return nil, false, err
+	}
+	response, err := runContext.Client.Post(cmd.Context(), "shares.info", map[string]any{"documentId": documentID})
+	if err != nil {
+		if outline.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if err := cacheSharesFromResponseWithDocumentID(runContext.BaseURL, response, documentID); err != nil {
+		return nil, false, err
 	}
 	share, err := shareFromDocumentShareResponse(response, shareID)
 	if err != nil {
-		return err
+		return nil, false, nil
 	}
-	return printResponse(cmd, share)
+	return share, true, nil
 }
 
 func documentIDForShareCache(cmd *cobra.Command, shareID string) (string, bool, error) {

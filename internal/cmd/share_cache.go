@@ -11,7 +11,10 @@ import (
 	"github.com/agynio/outline-cli/internal/config"
 )
 
-const shareCacheFile = "cache.json"
+const (
+	shareCacheFile = "cache.json"
+	shareCacheTTL  = 30 * 24 * time.Hour
+)
 
 type shareCache struct {
 	Bases map[string]shareCacheBase `json:"bases"`
@@ -105,7 +108,23 @@ func lookupCachedShareDocument(baseURL string, shareID string) (string, bool, er
 	if !ok || strings.TrimSpace(entry.DocumentID) == "" {
 		return "", false, nil
 	}
+	if shareCacheEntryExpired(entry, time.Now().UTC()) {
+		delete(base.Shares, shareID)
+		cache.Bases[baseURL] = base
+		if err := saveShareCache(cache); err != nil {
+			return "", false, err
+		}
+		return "", false, nil
+	}
 	return strings.TrimSpace(entry.DocumentID), true, nil
+}
+
+func shareCacheEntryExpired(entry shareCacheEntry, now time.Time) bool {
+	createdAt, err := time.Parse(time.RFC3339, strings.TrimSpace(entry.CreatedAt))
+	if err != nil {
+		return true
+	}
+	return now.Sub(createdAt) > shareCacheTTL
 }
 
 func clearShareCache() error {

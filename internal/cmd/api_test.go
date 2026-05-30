@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agynio/outline-cli/internal/outline"
 	"github.com/agynio/outline-cli/internal/output"
@@ -895,6 +896,105 @@ func TestSharesInfoFallsBackToCachedDocumentID(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
 		t.Fatalf("stdout = %s, want cached share", stdout.String())
+	}
+}
+
+func TestExpiredShareCacheEntryIsIgnored(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cache := newShareCache()
+	cache.Bases["https://wiki.example.com/api"] = shareCacheBase{Shares: map[string]shareCacheEntry{
+		"share-1": {DocumentID: "doc-1", CreatedAt: time.Now().UTC().Add(-shareCacheTTL - time.Hour).Format(time.RFC3339)},
+	}}
+	if err := saveShareCache(cache); err != nil {
+		t.Fatalf("saveShareCache() error = %v", err)
+	}
+
+	documentID, ok, err := lookupCachedShareDocument("https://wiki.example.com/api", "share-1")
+	if err != nil {
+		t.Fatalf("lookupCachedShareDocument() error = %v", err)
+	}
+	if ok || documentID != "" {
+		t.Fatalf("expired lookup = %q, %v; want empty, false", documentID, ok)
+	}
+	cache, err = loadShareCache()
+	if err != nil {
+		t.Fatalf("loadShareCache() error = %v", err)
+	}
+	if _, ok := cache.Bases["https://wiki.example.com/api"].Shares["share-1"]; ok {
+		t.Fatal("expired entry should be removed from cache")
+	}
+}
+
+func TestSharesInfoContinuesAfterStaleCacheMiss(t *testing.T) {
+	const shareID = "share-1"
+	const cachedDocumentID = "old-doc"
+	const listedDocumentID = "doc-1"
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	requests := []string{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		requests = append(requests, strings.TrimPrefix(r.URL.Path, "/")+":"+fmt.Sprint(payload))
+		switch r.URL.Path {
+		case "/shares.info":
+			if _, ok := payload["id"]; ok {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
+				return
+			}
+			switch payload["documentId"] {
+			case cachedDocumentID:
+				_, _ = w.Write([]byte(`{"data":{"id":"other","documentId":"old-doc"}}`))
+			case listedDocumentID:
+				_, _ = w.Write([]byte(`{"data":{"id":"share-1","documentId":"doc-1"}}`))
+			default:
+				t.Fatalf("unexpected documentId payload %#v", payload)
+			}
+		case "/shares.list":
+			_, _ = w.Write([]byte(`{"data":[{"id":"share-1","documentId":"doc-1"}]}`))
+		default:
+			t.Fatalf("unexpected request path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	if err := cacheShareDocument(server.URL, shareID, cachedDocumentID); err != nil {
+		t.Fatalf("cacheShareDocument() error = %v", err)
+	}
+
+	cmd := newMethodCommand(methodSpec{
+		Group:     "shares",
+		Action:    "info",
+		Method:    "shares.info",
+		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
+		Transform: transformSharesInfo,
+	})
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL, "token"),
+		BaseURL:      server.URL,
+		OutputFormat: output.FormatJSON,
+	}))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--id", shareID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
+		t.Fatalf("stdout = %s, want listed share", stdout.String())
+	}
+	if len(requests) != 4 {
+		t.Fatalf("requests = %v, want id lookup, cached doc lookup, list, listed doc lookup", requests)
+	}
+	if !strings.Contains(requests[1], "documentId:old-doc") || !strings.Contains(requests[3], "documentId:doc-1") {
+		t.Fatalf("fallback requests = %v, want stale cache then shares.list doc", requests)
 	}
 }
 
