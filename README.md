@@ -20,7 +20,7 @@ and place the `outline` binary on your `PATH`.
 # macOS arm64 example; adjust the version, OS, and architecture as needed.
 VERSION=v0.2.1
 curl -L -o outline-cli.tar.gz \
-  "https://github.com/agynio/outline-cli/releases/download/${VERSION}/outline_${VERSION#v}_darwin_arm64.tar.gz"
+  "https://github.com/agynio/outline-cli/releases/download/${VERSION}/outline_${VERSION}_darwin_arm64.tar.gz"
 tar -xzf outline-cli.tar.gz
 chmod +x outline
 sudo mv outline /usr/local/bin/outline
