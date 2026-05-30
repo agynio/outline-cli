@@ -427,12 +427,7 @@ func runSharesInfo(cmd *cobra.Command, payload map[string]any) error {
 	}
 	response, err := runContext.Client.Post(cmd.Context(), "shares.info", payload)
 	if err == nil {
-		if payloadHasValue(payload, "documentId") {
-			if err := cacheSharesFromResponseWithDocumentID(runContext.BaseURL, response, fmt.Sprint(payload["documentId"])); err != nil {
-				return err
-			}
-		}
-		return printResponse(cmd, outline.ResponseData(response))
+		return printNormalizedSharesInfo(cmd, response, shareIDFromPayload(payload), documentIDFromPayload(payload))
 	}
 	shareID := strings.TrimSpace(fmt.Sprint(payload["id"]))
 	documentID := strings.TrimSpace(fmt.Sprint(payload["documentId"]))
@@ -466,7 +461,7 @@ func runSharesInfo(cmd *cobra.Command, payload map[string]any) error {
 		return err
 	}
 	if ok {
-		return printResponse(cmd, share)
+		return printResponse(cmd, normalizedSharesInfo(share))
 	}
 
 	if payloadHasValue(payload, "documentId") {
@@ -482,7 +477,7 @@ func runSharesInfo(cmd *cobra.Command, payload map[string]any) error {
 			return err
 		}
 		if ok {
-			return printResponse(cmd, share)
+			return printResponse(cmd, normalizedSharesInfo(share))
 		}
 	}
 	documentID, inferred, err = documentIDForSharePage(cmd, shareID)
@@ -495,10 +490,63 @@ func runSharesInfo(cmd *cobra.Command, payload map[string]any) error {
 			return err
 		}
 		if ok {
-			return printResponse(cmd, share)
+			return printResponse(cmd, normalizedSharesInfo(share))
 		}
 	}
 	return fmt.Errorf("shares.info by id returned not found and share %s could not be resolved through cache, shares.list, or share page", shareID)
+}
+
+func printNormalizedSharesInfo(cmd *cobra.Command, response map[string]any, shareID string, documentID string) error {
+	runContext, err := RunContextFrom(cmd)
+	if err != nil {
+		return err
+	}
+	if documentID != "" {
+		if err := cacheSharesFromResponseWithDocumentID(runContext.BaseURL, response, documentID); err != nil {
+			return err
+		}
+	}
+	if shareID != "" {
+		share, err := shareFromDocumentShareResponse(response, shareID)
+		if err != nil {
+			return err
+		}
+		return printResponse(cmd, normalizedSharesInfo(share))
+	}
+	return printResponse(cmd, normalizedSharesInfo(outline.ResponseData(response)))
+}
+
+func normalizedSharesInfo(value any) map[string]any {
+	return map[string]any{"shares": shareListFromValue(value)}
+}
+
+func shareListFromValue(value any) []any {
+	if share, ok := value.(map[string]any); ok {
+		if shares, ok := share["shares"].([]any); ok {
+			return shares
+		}
+		return []any{share}
+	}
+	if shares, ok := value.([]any); ok {
+		return shares
+	}
+	return []any{}
+}
+
+func shareIDFromPayload(payload map[string]any) string {
+	shareID := strings.TrimSpace(fmt.Sprint(payload["id"]))
+	if shareID == "<nil>" {
+		return ""
+	}
+	return shareID
+}
+
+func documentIDFromPayload(payload map[string]any) string {
+	documentID := strings.TrimSpace(fmt.Sprint(payload["documentId"]))
+	if documentID == "<nil>" {
+		return ""
+	}
+	return documentID
 }
 
 func shareForDocumentID(cmd *cobra.Command, shareID string, documentID string) (any, bool, error) {
