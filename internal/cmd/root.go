@@ -124,9 +124,6 @@ func requiresBaseURL(cmd *cobra.Command, args []string) bool {
 	if cmd.Name() == "logout" && cmd.Parent() != nil && cmd.Parent().Name() == "auth" {
 		return false
 	}
-	if cmd.Parent() != nil && cmd.Parent().Name() == "cache" {
-		return false
-	}
 	return true
 }
 
