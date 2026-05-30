@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/agynio/outline-cli/internal/outline"
 	"github.com/agynio/outline-cli/internal/output"
@@ -266,12 +264,12 @@ func TestSharesInfoByDocumentIDOutputIsNormalized(t *testing.T) {
 	}
 }
 
-func TestSharesInfoFallsBackFromIDToDocumentID(t *testing.T) {
+func TestSharesInfoByIDNotFoundHardFailsWithDocumentIDHint(t *testing.T) {
 	const shareID = "share-1"
-	const documentID = "doc-1"
-	requests := []map[string]any{}
+	requests := 0
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
 		if r.URL.Path != "/shares.info" {
 			t.Fatalf("request path = %q, want /shares.info", r.URL.Path)
 		}
@@ -279,214 +277,12 @@ func TestSharesInfoFallsBackFromIDToDocumentID(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		requests = append(requests, payload)
+		if payload["id"] != shareID {
+			t.Fatalf("payload = %#v, want id %s", payload, shareID)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		if _, ok := payload["id"]; ok {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"data":[{"id":"other","documentId":"doc-1"},{"id":"share-1","documentId":"doc-1","url":"https://wiki.example.com/share-1"}]}`))
-	}))
-	defer server.Close()
-
-	cmd := newMethodCommand(methodSpec{
-		Group:     "shares",
-		Action:    "info",
-		Method:    "shares.info",
-		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
-		Transform: transformSharesInfo,
-	})
-	cmd.SetContext(withRunContext(context.Background(), &RunContext{
-		Client:       outline.NewClient(server.URL, "token"),
-		BaseURL:      server.URL,
-		OutputFormat: output.FormatJSON,
-	}))
-	var stdout bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"--id", shareID, "--document-id", documentID})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if len(requests) != 2 {
-		t.Fatalf("requests = %d, want 2", len(requests))
-	}
-	if requests[0]["id"] != shareID || requests[0]["documentId"] != documentID {
-		t.Fatalf("first request = %#v, want id and documentId", requests[0])
-	}
-	if _, ok := requests[1]["id"]; ok {
-		t.Fatalf("fallback request should not include id: %#v", requests[1])
-	}
-	if requests[1]["documentId"] != documentID {
-		t.Fatalf("fallback documentId = %v, want %s", requests[1]["documentId"], documentID)
-	}
-	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
-		t.Fatalf("stdout = %s, want matching share", stdout.String())
-	}
-	if strings.Contains(stdout.String(), `"id": "other"`) {
-		t.Fatalf("stdout = %s, should filter non-matching share", stdout.String())
-	}
-}
-
-func TestSharesInfoInfersDocumentIDFromList(t *testing.T) {
-	const shareID = "share-1"
-	const documentID = "doc-1"
-	requests := []string{}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
-		requests = append(requests, strings.TrimPrefix(r.URL.Path, "/")+":"+fmt.Sprint(payload))
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/shares.info", "/api/shares.info":
-			if _, ok := payload["id"]; ok {
-				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
-				return
-			}
-			_, _ = w.Write([]byte(`{"data":{"id":"share-1","documentId":"doc-1"}}`))
-		case "/shares.list", "/api/shares.list":
-			_, _ = w.Write([]byte(`{"data":[{"id":"share-1","documentId":"doc-1"}]}`))
-		default:
-			t.Fatalf("unexpected request path %s", r.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	cmd := newMethodCommand(methodSpec{
-		Group:     "shares",
-		Action:    "info",
-		Method:    "shares.info",
-		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
-		Transform: transformSharesInfo,
-	})
-	cmd.SetContext(withRunContext(context.Background(), &RunContext{
-		Client:       outline.NewClient(server.URL, "token"),
-		BaseURL:      server.URL,
-		OutputFormat: output.FormatJSON,
-	}))
-	var stdout bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"--id", shareID})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if len(requests) != 3 {
-		t.Fatalf("requests = %v, want id lookup, shares.list, document lookup", requests)
-	}
-	if !strings.Contains(requests[2], "documentId:"+documentID) {
-		t.Fatalf("document fallback request = %q, want documentId %s", requests[2], documentID)
-	}
-	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
-		t.Fatalf("stdout = %s, want inferred share", stdout.String())
-	}
-}
-
-func TestSharesInfoResolvesDocumentIDFromSharePage(t *testing.T) {
-	const shareID = "share-1"
-	const documentID = "doc-uuid"
-	const urlID = "url123"
-	requests := []string{}
-	sharePageAuth := ""
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/shares.info", "/api/shares.info":
-			var payload map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode request body: %v", err)
-			}
-			requests = append(requests, "shares.info:"+fmt.Sprint(payload))
-			if _, ok := payload["id"]; ok {
-				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
-				return
-			}
-			if payload["documentId"] != documentID {
-				t.Fatalf("document fallback payload = %#v, want documentId %s", payload, documentID)
-			}
-			_, _ = w.Write([]byte(`{"data":{"shares":[{"id":"other","documentId":"doc-uuid"},{"id":"share-1","documentId":"doc-uuid"}]}}`))
-		case "/shares.list", "/api/shares.list":
-			var payload map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode request body: %v", err)
-			}
-			requests = append(requests, "shares.list:"+fmt.Sprint(payload))
-			_, _ = w.Write([]byte(`{"data":[]}`))
-		case "/s/share-1":
-			sharePageAuth = r.Header.Get("Authorization")
-			requests = append(requests, "GET /s/share-1")
-			w.Header().Set("Content-Type", "text/html")
-			_, _ = w.Write([]byte(`<html><body><a href="/s/share-1/doc/example-title-url123">doc</a></body></html>`))
-		case "/documents.info", "/api/documents.info":
-			var payload map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode request body: %v", err)
-			}
-			requests = append(requests, "documents.info:"+fmt.Sprint(payload))
-			if payload["id"] != urlID {
-				t.Fatalf("documents.info payload = %#v, want urlId %s", payload, urlID)
-			}
-			_, _ = w.Write([]byte(`{"data":{"id":"doc-uuid","urlId":"url123"}}`))
-		default:
-			t.Fatalf("unexpected request path %s", r.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	cmd := newMethodCommand(methodSpec{
-		Group:     "shares",
-		Action:    "info",
-		Method:    "shares.info",
-		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
-		Transform: transformSharesInfo,
-	})
-	cmd.SetContext(withRunContext(context.Background(), &RunContext{
-		Client:       outline.NewClient(server.URL+"/api", "token"),
-		BaseURL:      server.URL + "/api",
-		OutputFormat: output.FormatJSON,
-	}))
-	var stdout bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"--id", shareID})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if sharePageAuth != "" {
-		t.Fatalf("share page Authorization header = %q, want empty", sharePageAuth)
-	}
-	if len(requests) != 5 {
-		t.Fatalf("requests = %v, want id lookup, list, page, document info, document share", requests)
-	}
-	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
-		t.Fatalf("stdout = %s, want resolved share", stdout.String())
-	}
-	if strings.Contains(stdout.String(), `"id": "other"`) {
-		t.Fatalf("stdout = %s, should filter non-matching share", stdout.String())
-	}
-}
-
-func TestSharesInfoSharePageResolutionErrorsClearly(t *testing.T) {
-	const shareID = "share-1"
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/shares.info", "/api/shares.info":
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
-		case "/shares.list", "/api/shares.list":
-			_, _ = w.Write([]byte(`{"data":[]}`))
-		case "/s/share-1":
-			w.Header().Set("Content-Type", "text/html")
-			_, _ = w.Write([]byte(`<html><body>No document link</body></html>`))
-		default:
-			t.Fatalf("unexpected request path %s", r.URL.Path)
-		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
 	}))
 	defer server.Close()
 
@@ -505,29 +301,23 @@ func TestSharesInfoSharePageResolutionErrorsClearly(t *testing.T) {
 	cmd.SetArgs([]string{"--id", shareID})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("Execute() expected resolution error")
+		t.Fatal("Execute() expected unsupported by-id error")
 	}
-	if !strings.Contains(err.Error(), "could not be resolved through cache, shares.list, or share page") {
-		t.Fatalf("error = %q, want share page resolution message", err.Error())
+	if !strings.Contains(err.Error(), "does not support shares.info by id") || !strings.Contains(err.Error(), "--document-id") {
+		t.Fatalf("error = %q, want document-id hint", err.Error())
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want only direct by-id request", requests)
 	}
 }
 
-func TestSharesInfoFallbackErrorsWhenIDMissingFromDocumentResponse(t *testing.T) {
-	const shareID = "missing-share"
-	const documentID = "doc-1"
+func TestSharesInfoByIDDoesNotWriteCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		if _, ok := payload["id"]; ok {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"data":[{"id":"other","documentId":"doc-1"}]}`))
+		_, _ = w.Write([]byte(`{"data":{"id":"share-1","documentId":"doc-1"}}`))
 	}))
 	defer server.Close()
 
@@ -543,13 +333,13 @@ func TestSharesInfoFallbackErrorsWhenIDMissingFromDocumentResponse(t *testing.T)
 		BaseURL:      server.URL,
 		OutputFormat: output.FormatJSON,
 	}))
-	cmd.SetArgs([]string{"--id", shareID, "--document-id", documentID})
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() expected missing share error")
+	cmd.SetArgs([]string{"--id", "share-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "not found in document share response") {
-		t.Fatalf("error = %q, want missing share message", err.Error())
+	cachePath := filepath.Join(home, ".outline-cli", "cache.json")
+	if _, err := os.Stat(cachePath); !os.IsNotExist(err) {
+		t.Fatalf("cache file stat err = %v, want not exist", err)
 	}
 }
 
@@ -898,240 +688,11 @@ func TestConfirmActionRequiresYesForNonTTY(t *testing.T) {
 	}
 }
 
-func TestShareCacheReadWriteIsPerBaseURL(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	if err := cacheShareDocument("https://one.example.com/api", "share-1", "doc-1"); err != nil {
-		t.Fatalf("cacheShareDocument() error = %v", err)
-	}
-	if err := cacheShareDocument("https://two.example.com/api", "share-1", "doc-2"); err != nil {
-		t.Fatalf("cacheShareDocument() second base error = %v", err)
-	}
-
-	documentID, ok, err := lookupCachedShareDocument("https://one.example.com/api", "share-1")
-	if err != nil {
-		t.Fatalf("lookupCachedShareDocument() error = %v", err)
-	}
-	if !ok || documentID != "doc-1" {
-		t.Fatalf("one.example lookup = %q, %v; want doc-1, true", documentID, ok)
-	}
-	documentID, ok, err = lookupCachedShareDocument("https://two.example.com/api", "share-1")
-	if err != nil {
-		t.Fatalf("lookupCachedShareDocument() second base error = %v", err)
-	}
-	if !ok || documentID != "doc-2" {
-		t.Fatalf("two.example lookup = %q, %v; want doc-2, true", documentID, ok)
-	}
-
-	cachePath := filepath.Join(home, ".outline-cli", "cache.json")
-	info, err := os.Stat(cachePath)
-	if err != nil {
-		t.Fatalf("Stat() cache error = %v", err)
-	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatalf("cache mode = %v, want 0600", info.Mode().Perm())
-	}
-	data, err := os.ReadFile(cachePath)
-	if err != nil {
-		t.Fatalf("ReadFile() cache error = %v", err)
-	}
-	if strings.Contains(string(data), "token") || strings.Contains(string(data), "api-key") {
-		t.Fatalf("cache should not contain secret-looking fields: %s", string(data))
-	}
-}
-
-func TestSharesInfoFallsBackToCachedDocumentID(t *testing.T) {
-	const shareID = "share-1"
-	const documentID = "doc-1"
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/shares.info" {
-			t.Fatalf("request path = %q, want /shares.info", r.URL.Path)
+func TestCacheCommandRemoved(t *testing.T) {
+	for _, command := range newAPIRootCommands() {
+		if command.Name() == "cache" {
+			t.Fatal("cache command should not be registered")
 		}
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
-		if _, ok := payload["id"]; ok {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
-			return
-		}
-		if payload["documentId"] != documentID {
-			t.Fatalf("document fallback payload = %#v, want documentId %s", payload, documentID)
-		}
-		_, _ = w.Write([]byte(`{"data":{"id":"share-1","documentId":"doc-1"}}`))
-	}))
-	defer server.Close()
-
-	if err := cacheShareDocument(server.URL, shareID, documentID); err != nil {
-		t.Fatalf("cacheShareDocument() error = %v", err)
-	}
-
-	cmd := newMethodCommand(methodSpec{
-		Group:     "shares",
-		Action:    "info",
-		Method:    "shares.info",
-		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
-		Transform: transformSharesInfo,
-	})
-	cmd.SetContext(withRunContext(context.Background(), &RunContext{
-		Client:       outline.NewClient(server.URL, "token"),
-		BaseURL:      server.URL,
-		OutputFormat: output.FormatJSON,
-	}))
-	var stdout bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"--id", shareID})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
-		t.Fatalf("stdout = %s, want cached share", stdout.String())
-	}
-}
-
-func TestExpiredShareCacheEntryIsIgnored(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cache := newShareCache()
-	cache.Bases["https://wiki.example.com/api"] = shareCacheBase{Shares: map[string]shareCacheEntry{
-		"share-1": {DocumentID: "doc-1", CreatedAt: time.Now().UTC().Add(-shareCacheTTL - time.Hour).Format(time.RFC3339)},
-	}}
-	if err := saveShareCache(cache); err != nil {
-		t.Fatalf("saveShareCache() error = %v", err)
-	}
-
-	documentID, ok, err := lookupCachedShareDocument("https://wiki.example.com/api", "share-1")
-	if err != nil {
-		t.Fatalf("lookupCachedShareDocument() error = %v", err)
-	}
-	if ok || documentID != "" {
-		t.Fatalf("expired lookup = %q, %v; want empty, false", documentID, ok)
-	}
-	cache, err = loadShareCache()
-	if err != nil {
-		t.Fatalf("loadShareCache() error = %v", err)
-	}
-	if _, ok := cache.Bases["https://wiki.example.com/api"].Shares["share-1"]; ok {
-		t.Fatal("expired entry should be removed from cache")
-	}
-}
-
-func TestSharesInfoContinuesAfterStaleCacheMiss(t *testing.T) {
-	const shareID = "share-1"
-	const cachedDocumentID = "old-doc"
-	const listedDocumentID = "doc-1"
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	requests := []string{}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
-		requests = append(requests, strings.TrimPrefix(r.URL.Path, "/")+":"+fmt.Sprint(payload))
-		switch r.URL.Path {
-		case "/shares.info":
-			if _, ok := payload["id"]; ok {
-				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte(`{"error":"Resource not found"}`))
-				return
-			}
-			switch payload["documentId"] {
-			case cachedDocumentID:
-				_, _ = w.Write([]byte(`{"data":{"id":"other","documentId":"old-doc"}}`))
-			case listedDocumentID:
-				_, _ = w.Write([]byte(`{"data":{"id":"share-1","documentId":"doc-1"}}`))
-			default:
-				t.Fatalf("unexpected documentId payload %#v", payload)
-			}
-		case "/shares.list":
-			_, _ = w.Write([]byte(`{"data":[{"id":"share-1","documentId":"doc-1"}]}`))
-		default:
-			t.Fatalf("unexpected request path %s", r.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	if err := cacheShareDocument(server.URL, shareID, cachedDocumentID); err != nil {
-		t.Fatalf("cacheShareDocument() error = %v", err)
-	}
-
-	cmd := newMethodCommand(methodSpec{
-		Group:     "shares",
-		Action:    "info",
-		Method:    "shares.info",
-		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
-		Transform: transformSharesInfo,
-	})
-	cmd.SetContext(withRunContext(context.Background(), &RunContext{
-		Client:       outline.NewClient(server.URL, "token"),
-		BaseURL:      server.URL,
-		OutputFormat: output.FormatJSON,
-	}))
-	var stdout bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"--id", shareID})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if !strings.Contains(stdout.String(), `"id": "share-1"`) {
-		t.Fatalf("stdout = %s, want listed share", stdout.String())
-	}
-	if len(requests) != 4 {
-		t.Fatalf("requests = %v, want id lookup, cached doc lookup, list, listed doc lookup", requests)
-	}
-	if !strings.Contains(requests[1], "documentId:old-doc") || !strings.Contains(requests[3], "documentId:doc-1") {
-		t.Fatalf("fallback requests = %v, want stale cache then shares.list doc", requests)
-	}
-}
-
-func TestSharesCreateUpdatesShareCache(t *testing.T) {
-	const shareID = "share-1"
-	const documentID = "doc-1"
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/shares.create" {
-			t.Fatalf("request path = %q, want /shares.create", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"id":"share-1","documentId":"doc-1"}}`))
-	}))
-	defer server.Close()
-
-	cmd := newMethodCommand(methodSpec{
-		Group:    "shares",
-		Action:   "create",
-		Method:   "shares.create",
-		Flags:    fields(s("document", "documentId", "Document ID")),
-		Required: []string{"document"},
-	})
-	cmd.SetContext(withRunContext(context.Background(), &RunContext{
-		Client:       outline.NewClient(server.URL, "token"),
-		BaseURL:      server.URL,
-		OutputFormat: output.FormatJSON,
-	}))
-	cmd.SetArgs([]string{"--document-id", documentID})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	cachedDocumentID, ok, err := lookupCachedShareDocument(server.URL, shareID)
-	if err != nil {
-		t.Fatalf("lookupCachedShareDocument() error = %v", err)
-	}
-	if !ok || cachedDocumentID != documentID {
-		t.Fatalf("cached document = %q, %v; want %s, true", cachedDocumentID, ok, documentID)
 	}
 }
 
