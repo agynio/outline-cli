@@ -16,7 +16,8 @@ outline auth info
 ```
 
 Configuration is stored in `~/.outline-cli/config.yaml`; the API key is stored in
-`~/.outline-cli/token` with mode `0600`.
+`~/.outline-cli/token` with mode `0600`. A token-free share lookup cache is stored in
+`~/.outline-cli/cache.json` with per-base-URL entries.
 
 ## Output
 
@@ -46,7 +47,7 @@ membership removal operations.
 - `outline file-operations download --id <id> --out <path>` downloads a completed file operation.
 - `outline comments update --id <id> --data-json <json>` updates a comment with a valid ProseMirror document payload.
 - `outline documents restore --id <id> --revision-id <id>` restores a document to a specific revision; `--use-latest-revision` resolves the newest revision first.
-- `outline shares info --id <share-id>` retries through `shares.list`, then the public share page, when a server cannot resolve the share ID directly.
+- `outline shares info --id <share-id>` retries through the local share cache, `shares.list`, then the public share page, when a server cannot resolve the share ID directly.
 - `outline attachments create ...` returns signed upload instructions.
 - `outline attachments upload --file <path> [--document <id>]` creates signed upload instructions and performs the upload.
 
@@ -100,6 +101,11 @@ positional form for compatibility.
 
 - `outline auth config`
 - `outline auth info`
+
+### cache
+
+- `outline cache clear`
+- `outline cache show`
 
 ### collections
 
