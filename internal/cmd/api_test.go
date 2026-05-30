@@ -170,6 +170,102 @@ func TestRootDocumentsCreateCollectionIDPayloadIsVerbatim(t *testing.T) {
 	}
 }
 
+func TestSharesInfoByIDOutputIsNormalized(t *testing.T) {
+	const shareID = "share-1"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/shares.info" {
+			t.Fatalf("request path = %q, want /shares.info", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if payload["id"] != shareID {
+			t.Fatalf("payload = %#v, want id %s", payload, shareID)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"id":"share-1","documentId":"doc-1"}}`))
+	}))
+	defer server.Close()
+
+	cmd := newMethodCommand(methodSpec{
+		Group:     "shares",
+		Action:    "info",
+		Method:    "shares.info",
+		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
+		Transform: transformSharesInfo,
+	})
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL, "token"),
+		BaseURL:      server.URL,
+		OutputFormat: output.FormatJSON,
+	}))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--id", shareID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var decoded struct {
+		Shares []map[string]any `json:"shares"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode stdout: %v\n%s", err, stdout.String())
+	}
+	if len(decoded.Shares) != 1 || decoded.Shares[0]["id"] != shareID {
+		t.Fatalf("shares = %#v, want single share %s", decoded.Shares, shareID)
+	}
+}
+
+func TestSharesInfoByDocumentIDOutputIsNormalized(t *testing.T) {
+	const documentID = "doc-1"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/shares.info" {
+			t.Fatalf("request path = %q, want /shares.info", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if payload["documentId"] != documentID {
+			t.Fatalf("payload = %#v, want documentId %s", payload, documentID)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"shares":[{"id":"share-1","documentId":"doc-1"},{"id":"share-2","documentId":"doc-1"}]}}`))
+	}))
+	defer server.Close()
+
+	cmd := newMethodCommand(methodSpec{
+		Group:     "shares",
+		Action:    "info",
+		Method:    "shares.info",
+		Flags:     fields(s("id", "id", "Share ID"), s("document", "documentId", "Document ID")),
+		Transform: transformSharesInfo,
+	})
+	cmd.SetContext(withRunContext(context.Background(), &RunContext{
+		Client:       outline.NewClient(server.URL, "token"),
+		BaseURL:      server.URL,
+		OutputFormat: output.FormatJSON,
+	}))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--document-id", documentID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var decoded struct {
+		Shares []map[string]any `json:"shares"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode stdout: %v\n%s", err, stdout.String())
+	}
+	if len(decoded.Shares) != 2 {
+		t.Fatalf("shares = %#v, want two document shares", decoded.Shares)
+	}
+}
+
 func TestSharesInfoFallsBackFromIDToDocumentID(t *testing.T) {
 	const shareID = "share-1"
 	const documentID = "doc-1"
