@@ -96,7 +96,6 @@ DOCUMENT_ID=$(outline documents create \
 # Update the document.
 outline documents update \
   --id "$DOCUMENT_ID" \
-  --title "CLI smoke test updated" \
   --text "# Updated from outline-cli"
 
 # Search documents.
