@@ -49,6 +49,37 @@ Configuration is stored in `~/.outline-cli/config.yaml`; the API key is stored i
 `~/.outline-cli/token` with mode `0600`. The CLI is otherwise stateless and does
 not write local caches.
 
+You can also authenticate normal commands with environment variables instead of
+writing credentials to disk:
+
+```sh
+OUTLINE_BASE_URL=https://wiki.example.com \
+OUTLINE_API_KEY=ol_api_xxx \
+outline documents search --query handbook
+```
+
+Environment authentication does not create or update
+`~/.outline-cli/config.yaml` or `~/.outline-cli/token`. `outline auth login`
+still requires explicit `--base-url` and `--api-key` flags when you want to save
+credentials locally, and `outline auth logout` only removes the saved token.
+
+Base URL precedence is:
+
+1. `--base-url`
+2. `OUTLINE_BASE_URL`
+3. `~/.outline-cli/config.yaml`
+
+API key precedence is:
+
+1. `OUTLINE_API_KEY`
+2. `~/.outline-cli/token`
+
+Whitespace-only environment values are ignored. If `OUTLINE_BASE_URL` is set to
+an invalid URL, the command returns an error instead of falling back to saved
+configuration. Partial environment configuration is supported: `OUTLINE_BASE_URL`
+can pair with a saved token, and `OUTLINE_API_KEY` can pair with `--base-url` or
+a saved base URL.
+
 ## Output
 
 The default output format is YAML. JSON is available with `--output json` (or
@@ -152,8 +183,9 @@ membership removal operations.
 ## Integration smoke runner
 
 `scripts/integration_smoke.sh` can run a curated method smoke test against a
-real Outline instance without committing credentials. It reads credentials from
-environment variables, uses an isolated temporary `HOME` by default, resolves a
+real Outline instance without committing credentials. It uses the same
+`OUTLINE_BASE_URL` and `OUTLINE_API_KEY` environment variables supported by
+normal CLI commands, uses an isolated temporary `HOME` by default, resolves a
 collection named `Test`, creates a temporary document, and prints a
 method-to-outcome table.
 
