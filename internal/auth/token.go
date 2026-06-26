@@ -17,7 +17,7 @@ type tokenNotFoundError struct {
 }
 
 func (e tokenNotFoundError) Error() string {
-	return fmt.Sprintf("no token found; run 'outline auth login' or place an API key in %s", e.path)
+	return fmt.Sprintf("no token found; set %s, run 'outline auth login', or place an API key in %s", config.EnvAPIKey, e.path)
 }
 
 func (e tokenNotFoundError) Is(target error) bool {
@@ -29,6 +29,10 @@ type TokenOptions struct {
 }
 
 func LoadToken(opts TokenOptions) (string, error) {
+	if token := strings.TrimSpace(os.Getenv(config.EnvAPIKey)); token != "" {
+		return token, nil
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("home dir: %w", err)

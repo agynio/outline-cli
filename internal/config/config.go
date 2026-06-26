@@ -16,6 +16,9 @@ const (
 	ConfigFile = "config.yaml"
 	TokenFile  = "token"
 
+	EnvBaseURL = "OUTLINE_BASE_URL"
+	EnvAPIKey  = "OUTLINE_API_KEY"
+
 	DefaultOutput = "yaml"
 )
 
@@ -93,8 +96,11 @@ func ResolveBaseURL(cfg *Config, flagURL string) (string, error) {
 	if strings.TrimSpace(flagURL) != "" {
 		return NormalizeBaseURL(flagURL)
 	}
+	if envURL := strings.TrimSpace(os.Getenv(EnvBaseURL)); envURL != "" {
+		return NormalizeBaseURL(envURL)
+	}
 	if cfg == nil || strings.TrimSpace(cfg.BaseURL) == "" {
-		return "", fmt.Errorf("base URL is not configured; run 'outline auth login --base-url <url> --api-key <key>'")
+		return "", fmt.Errorf("base URL is not configured; set %s, pass --base-url, or run 'outline auth login --base-url <url> --api-key <key>'", EnvBaseURL)
 	}
 	return NormalizeBaseURL(cfg.BaseURL)
 }
